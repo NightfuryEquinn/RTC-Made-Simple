@@ -1,0 +1,44 @@
+{
+  "name": "@nightfuryequinn/rtc-made-simple-server",
+  "version": "1.0.0",
+  "description": "WebSocket-based video calling server for NestJS application",
+  "main": "index.js",
+  "scripts": {
+    "build": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NightfuryEquinn/RTC-Made-Simple.git"
+  },
+  "keywords": [
+    "WebRTC",
+    "WebSocket",
+    "NestJS",
+    "SocketIO",
+    "VideoCall"
+  ],
+  "author": "NightfuryEquinn",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/NightfuryEquinn/RTC-Made-Simple/issues"
+  },
+  "homepage": "https://github.com/NightfuryEquinn/RTC-Made-Simple#readme",
+  "peerDependencies": {
+    "@nestjs/common": "^11.1.6",
+    "@nestjs/swagger": "^11.2.0",
+    "@nestjs/websockets": "^11.1.6",
+    "@types/node": "^24.3.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.2"
+  },
+  "devDependencies": {
+    "@nestjs/common": "^11.1.6",
+    "@nestjs/swagger": "^11.2.0",
+    "@nestjs/websockets": "^11.1.6",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.2",
+    "socket.io": "^4.8.1",
+    "typescript": "^5.9.2",
+    "@types/node": "^24.3.0"
+  }
+}
