@@ -1,5 +1,5 @@
 import { DynamicModule, Module } from "@nestjs/common";
-import { VideoCallCallbacks } from "./interfaces/video-call-callback.interface";
+import { VideoCallCallbacks } from "./interfaces/video-call-callbacks.interface";
 import { VideoCallGateway } from "./video-call.gateway";
 import { VideoCallService } from "./video-call.service";
 import { VideoCallController } from "./video-call.controller";

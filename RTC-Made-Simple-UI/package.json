@@ -1,0 +1,43 @@
+{
+  "name": "@nightfuryequinn/rtc-made-simple-ui",
+  "version": "1.0.0",
+  "description": "React Native video calling components with WebRTC support",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist", "README.md"
+  ],
+  "scripts": {
+    "build": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NightfuryEquinn/RTC-Made-Simple.git"
+  },
+  "keywords": [
+    "WebRTC",
+    "WebSocket",
+    "React Native",
+    "SocketIO",
+    "VideoCall"
+  ],
+  "author": "NightfuryEquinn",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/NightfuryEquinn/RTC-Made-Simple/issues"
+  },
+  "homepage": "https://github.com/NightfuryEquinn/RTC-Made-Simple#readme",
+  "peerDependencies": {
+    "react": "18.3.1",
+    "react-native": "0.77.3",
+    "react-native-webrtc": "^124.0.6",
+    "react-native-incall-manager": "^4.2.1",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "zustand": "^5.0.5"
+  },
+  "devDependencies": {
+    "@types/react": "~18.3.12",
+    "typescript": "^5.9.2"
+  }
+}

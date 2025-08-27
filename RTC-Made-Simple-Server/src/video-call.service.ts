@@ -1,6 +1,6 @@
 import { Inject, Injectable, Optional } from "@nestjs/common";
 import { VideoCallServiceInterface } from "./interfaces/video-call-service.interface";
-import { VideoCallCallbacks } from "./interfaces/video-call-callback.interface";
+import { VideoCallCallbacks } from "./interfaces/video-call-callbacks.interface";
 import { ResponseCallDto } from "./dtos/response-call.dto";
 import { CallStatus } from "./dtos/end-call.dto";
 
