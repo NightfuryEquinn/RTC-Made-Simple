@@ -1,13 +1,13 @@
-import { Text, View, TouchableOpacity, StyleSheet } from "react-native";
-import { useState } from "react";
-import { useVideoSocket, CallOverlay } from "@nightfuryequinn/rtc-made-simple-ui";
+import { CallOverlay, useVideoSocket } from "@nightfuryequinn/rtc-made-simple-ui";
 import { useRouter } from "expo-router";
+import { useState } from "react";
+import { Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 export default function Index() {
   const router = useRouter();
   
-  const [currentUser] = useState("user123");
-  const [receiverName, setReceiverName] = useState("user456");
+  const [currentUser] = useState(Platform.OS === 'android' ? 'user123' : 'user456');
+  const [receiverName] = useState(Platform.OS === 'android' ? 'user456' : 'user123');
   
   const { 
     incomingCall, 
@@ -17,7 +17,7 @@ export default function Index() {
     initiateCall 
   } = useVideoSocket({
     currentUser,
-    baseUrl: 'http://localhost:3000', // Your backend URL
+    baseUrl: Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000', // Your backend URL
     onCallAccepted: (data) => {
       console.log('Call accepted:', data);
 

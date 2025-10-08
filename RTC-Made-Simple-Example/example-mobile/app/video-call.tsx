@@ -1,12 +1,13 @@
 import { VideoCallScreen } from '@nightfuryequinn/rtc-made-simple-ui';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Platform } from 'react-native';
 
 export default function VideoCall() {
   const router = useRouter();
   const params = useLocalSearchParams();
   
   const { conversationId, callerName, receiverName } = params;
-  const currentUser = 'user123'; // Get from your auth state
+  const currentUser = Platform.OS === 'android' ? 'user123' : 'user456'; // Get from your auth state
 
   const handleCallEnd = (duration: string) => {
     console.log('Call ended, duration:', duration);
