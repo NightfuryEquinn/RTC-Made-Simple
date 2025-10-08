@@ -72,7 +72,7 @@ export const useVideoSocket = ({
       socket.off('callAccepted', handleCallAccepted)
       socket.off('callEnded', handleCallEnded)
     }
-  }, [currentUser, baseUrl, onCallAccepted, onCallDeclined, onCallEnded])
+  }, [currentUser, baseUrl, onCallAccepted, onCallDeclined, onCallEnded, setIncomingCall, setIsCallVisible])
 
   const ensureSocket = useCallback(() => {
     let socket = getVideoSocket()
@@ -86,59 +86,65 @@ export const useVideoSocket = ({
   }, [currentUser, baseUrl])
 
   const acceptCall = useCallback(() => {
-    if (!incomingCall) return
+    // Read from store at call time to prevent infinite loop
+    const call = useCallOverlay.getState().incomingCall
+    if (!call) return
 
     const socket = ensureSocket()
 
     if (socket) {
       socket.emit('acceptCall', {
-        callerName: incomingCall.callerName,
-        receiverName: incomingCall.receiverName,
-        conversationId: incomingCall.conversationId
+        callerName: call.callerName,
+        receiverName: call.receiverName,
+        conversationId: call.conversationId
       })
     }
 
     setIsCallVisible(false)
     setIncomingCall(null)
-  }, [incomingCall])
+  }, [ensureSocket, setIsCallVisible, setIncomingCall])
 
   const declineCall = useCallback((reason?: string) => {
-    if (!incomingCall) return
+    // Read from store at call time to prevent infinite loop
+    const call = useCallOverlay.getState().incomingCall
+    if (!call) return
 
     const socket = ensureSocket()
 
     if (socket) {
       socket.emit('declineCall', {
-        callerName: incomingCall.callerName,
-        receiverName: incomingCall.receiverName,
+        callerName: call.callerName,
+        receiverName: call.receiverName,
         reason: reason || 'Call declined'
       })
     }
 
     setIsCallVisible(false)
     setIncomingCall(null)
-  }, [incomingCall, ensureSocket])
+  }, [ensureSocket, setIsCallVisible, setIncomingCall])
 
   const cancelCall = useCallback(() => {
-    if (!incomingCall) return
+    // Read from store at call time to prevent infinite loop
+    const call = useCallOverlay.getState().incomingCall
+    if (!call) return
 
     const socket = ensureSocket()
 
     if (socket) {
       socket.emit('cancelCall', {
-        callerName: incomingCall.callerName,
-        receiverName: incomingCall.receiverName,
-        conversationId: incomingCall.conversationId
+        callerName: call.callerName,
+        receiverName: call.receiverName,
+        conversationId: call.conversationId
       })
 
       socket.emit('joinCallRoom', {
-        roomName: incomingCall.callerName
+        roomName: call.callerName
       })
     }
 
     setIsCallVisible(false)
     setIncomingCall(null)
-  }, [incomingCall, ensureSocket])
+  }, [ensureSocket, setIsCallVisible, setIncomingCall])
 
   const initiateCall = useCallback((receiverName: string, conversationId: number) => {
     if (!currentUser) return
@@ -163,7 +169,7 @@ export const useVideoSocket = ({
         conversationId
       })
     }
-  }, [currentUser, ensureSocket])
+  }, [currentUser, ensureSocket, setIsCallVisible, setIncomingCall])
 
   return {
     incomingCall,

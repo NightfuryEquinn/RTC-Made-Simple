@@ -7,24 +7,32 @@ exports.CallOverlay = void 0;
 const react_1 = __importDefault(require("react"));
 const react_native_1 = require("react-native");
 const useCallOverlay_1 = require("../hooks/useCallOverlay");
-const CallOverlay = ({ onAccept, onDecline, avatarUrl }) => {
+const CallOverlay = ({ currentUser, onAccept, onDecline, onCancel, avatarUrl }) => {
     const { incomingCall, isCallVisible } = (0, useCallOverlay_1.useCallOverlay)();
     if (!isCallVisible || !incomingCall) {
         return null;
     }
+    // Determine if this is an outgoing call (user is the caller)
+    const isOutgoingCall = incomingCall.callerName === currentUser;
+    const displayName = isOutgoingCall ? incomingCall.receiverName : incomingCall.callerName;
+    const callText = isOutgoingCall ? 'Calling...' : 'Incoming video call';
     return (<react_native_1.View style={styles.overlay}>
       <react_native_1.View style={styles.callContainer}>
         {avatarUrl && (<react_native_1.Image source={{ uri: avatarUrl }} style={styles.avatar}/>)}
-        <react_native_1.Text style={styles.callerName}>{incomingCall.callerName}</react_native_1.Text>
-        <react_native_1.Text style={styles.callText}>Incoming video call</react_native_1.Text>
+        <react_native_1.Text style={styles.callerName}>{displayName}</react_native_1.Text>
+        <react_native_1.Text style={styles.callText}>{callText}</react_native_1.Text>
         
         <react_native_1.View style={styles.buttonContainer}>
-          <react_native_1.TouchableOpacity style={[styles.button, styles.declineButton]} onPress={onDecline}>
-            <react_native_1.Text style={styles.buttonText}>Decline</react_native_1.Text>
-          </react_native_1.TouchableOpacity>
-          <react_native_1.TouchableOpacity style={[styles.button, styles.acceptButton]} onPress={onAccept}>
-            <react_native_1.Text style={styles.buttonText}>Accept</react_native_1.Text>
-          </react_native_1.TouchableOpacity>
+          {isOutgoingCall ? (<react_native_1.TouchableOpacity style={[styles.button, styles.cancelButton]} onPress={onCancel}>
+              <react_native_1.Text style={styles.buttonText}>Cancel</react_native_1.Text>
+            </react_native_1.TouchableOpacity>) : (<>
+              <react_native_1.TouchableOpacity style={[styles.button, styles.declineButton]} onPress={onDecline}>
+                <react_native_1.Text style={styles.buttonText}>Decline</react_native_1.Text>
+              </react_native_1.TouchableOpacity>
+              <react_native_1.TouchableOpacity style={[styles.button, styles.acceptButton]} onPress={onAccept}>
+                <react_native_1.Text style={styles.buttonText}>Accept</react_native_1.Text>
+              </react_native_1.TouchableOpacity>
+            </>)}
         </react_native_1.View>
       </react_native_1.View>
     </react_native_1.View>);
@@ -82,6 +90,9 @@ const styles = react_native_1.StyleSheet.create({
     },
     declineButton: {
         backgroundColor: '#f44336',
+    },
+    cancelButton: {
+        backgroundColor: '#FF9800',
     },
     buttonText: {
         color: '#fff',

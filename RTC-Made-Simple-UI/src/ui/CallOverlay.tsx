@@ -3,14 +3,18 @@ import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { useCallOverlay } from '../hooks/useCallOverlay';
 
 interface CallOverlayProps {
+  currentUser: string;
   onAccept: () => void;
   onDecline: () => void;
+  onCancel: () => void;
   avatarUrl?: string;
 }
 
 export const CallOverlay: React.FC<CallOverlayProps> = ({
+  currentUser,
   onAccept,
   onDecline,
+  onCancel,
   avatarUrl
 }) => {
   const { incomingCall, isCallVisible } = useCallOverlay();
@@ -19,22 +23,35 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
     return null;
   }
 
+  // Determine if this is an outgoing call (user is the caller)
+  const isOutgoingCall = incomingCall.callerName === currentUser;
+  const displayName = isOutgoingCall ? incomingCall.receiverName : incomingCall.callerName;
+  const callText = isOutgoingCall ? 'Calling...' : 'Incoming video call';
+
   return (
     <View style={styles.overlay}>
       <View style={styles.callContainer}>
         {avatarUrl && (
           <Image source={{ uri: avatarUrl }} style={styles.avatar} />
         )}
-        <Text style={styles.callerName}>{incomingCall.callerName}</Text>
-        <Text style={styles.callText}>Incoming video call</Text>
+        <Text style={styles.callerName}>{displayName}</Text>
+        <Text style={styles.callText}>{callText}</Text>
         
         <View style={styles.buttonContainer}>
-          <TouchableOpacity style={[styles.button, styles.declineButton]} onPress={onDecline}>
-            <Text style={styles.buttonText}>Decline</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.button, styles.acceptButton]} onPress={onAccept}>
-            <Text style={styles.buttonText}>Accept</Text>
-          </TouchableOpacity>
+          {isOutgoingCall ? (
+            <TouchableOpacity style={[styles.button, styles.cancelButton]} onPress={onCancel}>
+              <Text style={styles.buttonText}>Cancel</Text>
+            </TouchableOpacity>
+          ) : (
+            <>
+              <TouchableOpacity style={[styles.button, styles.declineButton]} onPress={onDecline}>
+                <Text style={styles.buttonText}>Decline</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.button, styles.acceptButton]} onPress={onAccept}>
+                <Text style={styles.buttonText}>Accept</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </View>
     </View>
@@ -93,6 +110,9 @@ const styles = StyleSheet.create({
   },
   declineButton: {
     backgroundColor: '#f44336',
+  },
+  cancelButton: {
+    backgroundColor: '#FF9800',
   },
   buttonText: {
     color: '#fff',

@@ -14,13 +14,15 @@ export default function Index() {
     isCallVisible, 
     acceptCall, 
     declineCall, 
+    cancelCall,
     initiateCall 
   } = useVideoSocket({
     currentUser,
-    baseUrl: Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000', // Your backend URL
+    baseUrl: Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000',
     onCallAccepted: (data) => {
-      console.log('Call accepted:', data);
+      console.log('Call accepted - navigating to video call:', data);
 
+      // Both caller and receiver will navigate when call is accepted
       router.push({
         pathname: '/video-call',
         params: {
@@ -37,6 +39,24 @@ export default function Index() {
       console.log('Call ended by:', data.endedBy);
     }
   });
+
+  // Wrap acceptCall to ensure navigation after accepting
+  const handleAcceptCall = () => {
+    const call = incomingCall;
+    if (!call) return;
+    
+    acceptCall();
+    
+    // Navigate immediately when accepting
+    router.push({
+      pathname: '/video-call',
+      params: {
+        conversationId: call.conversationId,
+        callerName: call.callerName,
+        receiverName: call.receiverName
+      }
+    });
+  };
 
   const handleStartCall = () => {
     initiateCall(receiverName, 12345); // conversationId: 12345
@@ -61,8 +81,10 @@ export default function Index() {
       {/* Call overlay for incoming calls */}
       {isCallVisible && incomingCall && (
         <CallOverlay
-          onAccept={acceptCall}
+          currentUser={currentUser}
+          onAccept={handleAcceptCall}
           onDecline={declineCall}
+          onCancel={cancelCall}
           avatarUrl="https://via.placeholder.com/150"
         />
       )}

@@ -277,6 +277,9 @@ const VideoCallScreen = ({ currentUser, conversationId, receiverName, callerName
                 return;
             isInitialized.current = true;
             setConnectionState('connecting');
+            socket?.emit('joinCallRoom', {
+                roomName: `conversation-${conversationId}`
+            });
             peerConnection.current = createPeerConnection();
             const stream = await initMedia();
             stream.getTracks().forEach(track => peerConnection.current?.addTrack(track, stream));
@@ -295,7 +298,7 @@ const VideoCallScreen = ({ currentUser, conversationId, receiverName, callerName
             console.error('Error init call', error);
             setConnectionState('failed');
         }
-    }, [createPeerConnection, initMedia, setupSocketHandlers, currentUser, callerName, receiverName, socket]);
+    }, [createPeerConnection, initMedia, setupSocketHandlers, currentUser, callerName, receiverName, socket, conversationId]);
     (0, react_1.useEffect)(() => {
         intervalRef.current = window.setInterval(() => {
             setElapsed(prev => prev + 1);
