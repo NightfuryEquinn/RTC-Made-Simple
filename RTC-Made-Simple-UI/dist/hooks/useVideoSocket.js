@@ -2,10 +2,19 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.useVideoSocket = void 0;
 const react_1 = require("react");
-const useCallOverlay_1 = require("./useCallOverlay");
 const socket_1 = require("../socket");
+const useCallOverlay_1 = require("./useCallOverlay");
 const useVideoSocket = ({ currentUser, baseUrl, onCallAccepted, onCallDeclined, onCallEnded }) => {
     const { incomingCall, isCallVisible, setIncomingCall, setIsCallVisible } = (0, useCallOverlay_1.useCallOverlay)();
+    const ensureSocket = (0, react_1.useCallback)(() => {
+        let socket = (0, socket_1.getVideoSocket)();
+        if (!socket && currentUser) {
+            socket = (0, socket_1.createVideoSocket)(currentUser, baseUrl);
+        }
+        if (socket?.disconnected)
+            socket.connect();
+        return socket;
+    }, [currentUser, baseUrl]);
     (0, react_1.useEffect)(() => {
         if (!currentUser)
             return;
@@ -17,7 +26,7 @@ const useVideoSocket = ({ currentUser, baseUrl, onCallAccepted, onCallDeclined, 
             setIsCallVisible(true);
         };
         const handleCallDeclined = (data) => {
-            const socket = ensureSocket();
+            const socket = (0, socket_1.getVideoSocket)();
             if (socket) {
                 socket.emit('joinCallRoom', {
                     roomName: currentUser
@@ -51,17 +60,7 @@ const useVideoSocket = ({ currentUser, baseUrl, onCallAccepted, onCallDeclined, 
             socket.off('callEnded', handleCallEnded);
         };
     }, [currentUser, baseUrl, onCallAccepted, onCallDeclined, onCallEnded, setIncomingCall, setIsCallVisible]);
-    const ensureSocket = (0, react_1.useCallback)(() => {
-        let socket = (0, socket_1.getVideoSocket)();
-        if (!socket && currentUser) {
-            socket = (0, socket_1.createVideoSocket)(currentUser, baseUrl);
-        }
-        if (socket?.disconnected)
-            socket.connect();
-        return socket;
-    }, [currentUser, baseUrl]);
     const acceptCall = (0, react_1.useCallback)(() => {
-        // Read from store at call time to prevent infinite loop
         const call = useCallOverlay_1.useCallOverlay.getState().incomingCall;
         if (!call)
             return;
@@ -77,7 +76,6 @@ const useVideoSocket = ({ currentUser, baseUrl, onCallAccepted, onCallDeclined, 
         setIncomingCall(null);
     }, [ensureSocket, setIsCallVisible, setIncomingCall]);
     const declineCall = (0, react_1.useCallback)((reason) => {
-        // Read from store at call time to prevent infinite loop
         const call = useCallOverlay_1.useCallOverlay.getState().incomingCall;
         if (!call)
             return;
@@ -93,7 +91,6 @@ const useVideoSocket = ({ currentUser, baseUrl, onCallAccepted, onCallDeclined, 
         setIncomingCall(null);
     }, [ensureSocket, setIsCallVisible, setIncomingCall]);
     const cancelCall = (0, react_1.useCallback)(() => {
-        // Read from store at call time to prevent infinite loop
         const call = useCallOverlay_1.useCallOverlay.getState().incomingCall;
         if (!call)
             return;

@@ -69,23 +69,25 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
-
+  
+    // Close peer connection first
     if (peerConnection.current) {
       peerConnection.current.close();
       peerConnection.current = null;
     }
-
+  
+    // Stop media tracks
     if (localStream) {
       localStream.getTracks().forEach(track => track.stop());
     }
-
+  
     setLocalStream(null);
     setRemoteStream(null);
     pendingIceCandidates.current = [];
     socketHandlersSet.current = false;
-
-    InCallManager.stop()
     isInitialized.current = false;
+  
+    InCallManager.stop();
   }, [localStream]);
 
   const handleHangUp = useCallback(() => {
@@ -147,27 +149,32 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
   }, [localStream]);
 
   const processingPendingIceCandidates = useCallback(async () => {
-    if (!peerConnection.current?.remoteDescription) return
+    if (!peerConnection.current?.remoteDescription) return;
 
-    const candidates = [...pendingIceCandidates.current]
-    pendingIceCandidates.current = []
+    const candidates = [...pendingIceCandidates.current];
+    pendingIceCandidates.current = [];
 
     for (const candidate of candidates) {
       try {
-        await peerConnection.current?.addIceCandidate(candidate)
+        await peerConnection.current?.addIceCandidate(candidate);
       } catch (error) {
-        console.error('Error adding pending ICE candidate', error)
+        console.error('Error adding pending ICE candidate', error);
       }
     }
-  }, [])
+  }, []);
 
   const createPeerConnection = useCallback(() => {
-    if (peerConnection.current) peerConnection.current.close()
+    if (peerConnection.current) {
+      console.log('Closing existing peer connection');
+      peerConnection.current.close();
+      peerConnection.current = null;
+    }
 
     const pc = new RTCPeerConnection({
-      iceServers: iceServers
-    })
+      iceServers: iceServers,
+    });
 
+    // @ts-ignore
     pc.addEventListener('track', (event) => {
       console.log('Track received:', event.streams.length);
       const [stream] = event.streams;
@@ -177,6 +184,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
       }
     });
 
+    // @ts-ignore
     pc.addEventListener('icecandidate', (event) => {
       if (event.candidate && socket) {
         socket.emit('ICEcandidate', {
@@ -191,140 +199,149 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
       }
     });
 
+    // @ts-ignore
     pc.addEventListener('connectionstatechange', () => {
       const state = pc.connectionState;
-      setConnectionState(state)
+      console.log('Connection state changed:', state);
+      setConnectionState(state);
     });
 
+    console.log('New peer connection created');
     return pc;
-  }, [callerName, receiverName, socket])
+  }, []);
 
   const initMedia = useCallback(async (): Promise<MediaStream> => {
     try {
-      InCallManager.start()
-      InCallManager.setKeepScreenOn(true)
-      InCallManager.setForceSpeakerphoneOn(true)
+      InCallManager.start();
+      InCallManager.setKeepScreenOn(true);
+      InCallManager.setForceSpeakerphoneOn(true);
 
-      const stream = await mediaDevices.getUserMedia(mediaConstraints)
-      setLocalStream(stream)
-      return stream
+      const stream = await mediaDevices.getUserMedia(mediaConstraints);
+      setLocalStream(stream);
+      return stream;
     } catch (error) {
-      console.error('Error init media', error)
-      throw error
+      console.error('Error init media', error);
+      throw error;
     }
-  }, [])
+  }, []);
 
   const setupSocketHandlers = useCallback(() => {
-    if (!socket || socketHandlersSet.current) return
-    socketHandlersSet.current = true
+    if (!socket || socketHandlersSet.current) return;
+    socketHandlersSet.current = true;
 
-    socket.off('newCall')
-    socket.off('callAnswered')
-    socket.off('ICEcandidate')
-    socket.off('callEnded')
+    console.log('Setting up socket handlers');
+    
+    socket.off('newCall');
+    socket.off('callAnswered');
+    socket.off('ICEcandidate');
+    socket.off('callEnded');
 
     socket.on('newCall', async (data: { callerName: string, rtcMessage: any }) => {
       try {
-        console.log('Received incoming call offer')
+        console.log('Received incoming call offer');
 
-        if (!peerConnection.current) return
+        if (!peerConnection.current) return;
 
         await peerConnection.current.setRemoteDescription(
           new RTCSessionDescription(data.rtcMessage)
-        )
+        );
 
-        await processingPendingIceCandidates()
+        await processingPendingIceCandidates();
 
-        const answer = await peerConnection.current.createAnswer()
-        await peerConnection.current.setLocalDescription(answer)
+        const answer = await peerConnection.current.createAnswer();
+        await peerConnection.current.setLocalDescription(answer);
 
         socket.emit('callAnswered', {
           callerName: data.callerName,
           receiverName: receiverName,
           rtcMessage: answer
-        })
+        });
 
-        console.log('Answer sent')
+        console.log('Answer sent');
       } catch (error) {
-        console.error('Error handling incoming call', error)
-        setConnectionState('failed')
+        console.error('Error handling incoming call', error);
+        setConnectionState('failed');
       }
-    })
+    });
 
     socket.on('callAnswered', async (data: { callerName: string, receiverName: string, rtcMessage: any }) => {
       try {
-        console.log('Received call answer')
+        console.log('Received call answer');
 
-        if (!peerConnection.current) return
+        if (!peerConnection.current) return;
 
         await peerConnection.current.setRemoteDescription(
           new RTCSessionDescription(data.rtcMessage)
-        )
+        );
 
-        await processingPendingIceCandidates()
+        await processingPendingIceCandidates();
       } catch (error) {
-        console.error('Error handling call answer', error)
-        setConnectionState('failed')
+        console.error('Error handling call answer', error);
+        setConnectionState('failed');
       }
-    })
+    });
 
     socket.on('ICEcandidate', async (data: { sender: string, rtcMessage: any }) => {
       try {
-        const { candidate, id, label } = data.rtcMessage
+        const { candidate, id, label } = data.rtcMessage;
         const iceCandidate = new RTCIceCandidate({
           candidate,
           sdpMid: id,
           sdpMLineIndex: label
-        })
+        });
         
         if (peerConnection.current?.remoteDescription) {
-          await peerConnection.current.addIceCandidate(iceCandidate)
+          await peerConnection.current.addIceCandidate(iceCandidate);
         } else {
-          pendingIceCandidates.current.push(iceCandidate)
+          pendingIceCandidates.current.push(iceCandidate);
         }
       } catch (error) {
-        console.error('Error adding ICE candidate', error)
+        console.error('Error adding ICE candidate', error);
       }
-    })
+    });
 
     socket.on('callEnded', async () => {
-      socket.emit('joinCallRoom', { roomName: currentUser })
+      socket.emit('joinCallRoom', { roomName: currentUser });
 
       const formattedDuration = formatTime(elapsed);
-      cleanup()
-      onCallEnd(formattedDuration)
-    })
-  }, [socket, receiverName, processingPendingIceCandidates, callerName, conversationId, elapsed, cleanup])
+      cleanup();
+      onCallEnd(formattedDuration);
+    });
+  }, [socket, receiverName, processingPendingIceCandidates, currentUser]);
 
   const initCall = useCallback(async () => {
     try {
-      if (isInitialized.current) return
-      isInitialized.current = true
+      if (isInitialized.current || peerConnection.current) return;
+      isInitialized.current = true;
 
-      setConnectionState('connecting')
+      setConnectionState('connecting');
 
-      peerConnection.current = createPeerConnection()
-      const stream = await initMedia()
-      stream.getTracks().forEach(track => peerConnection.current?.addTrack(track, stream))
+      // Both users must join the receiver's room for WebRTC signaling
+      socket?.emit('joinCallRoom', { roomName: receiverName });
+      console.log(`${currentUser} joined call room ${receiverName}`);
 
-      setupSocketHandlers()
+      peerConnection.current = createPeerConnection();
+      const stream = await initMedia();
+      stream.getTracks().forEach(track => peerConnection.current?.addTrack(track, stream));
+
+      setupSocketHandlers();
 
       if (currentUser === callerName) {
-        const offer = await peerConnection.current?.createOffer()
-        await peerConnection.current?.setLocalDescription(offer)
+        const offer = await peerConnection.current?.createOffer();
+        await peerConnection.current?.setLocalDescription(offer);
 
         socket?.emit('newCall', {
           receiverName,
           rtcMessage: offer
-        })
+        });
 
-        console.log('Offer sent to', receiverName)
+        console.log('Offer sent to', receiverName);
       }
     } catch (error) {
-      console.error('Error init call', error)
-      setConnectionState('failed')
+      console.error('Error init call', error);
+      setConnectionState('failed');
     }
-  }, [createPeerConnection, initMedia, setupSocketHandlers, currentUser, callerName, receiverName, socket])
+  }, [currentUser, callerName, receiverName, socket]);
 
   useEffect(() => {
     intervalRef.current = window.setInterval(() => {
@@ -334,22 +351,24 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
     return () => {
       if (intervalRef.current !== null) clearInterval(intervalRef.current);
     };
-  }, [])
+  }, []);
 
   useEffect(() => {
-    if (socket) initCall()
+    if (socket) {
+      initCall();
+    }
 
     return () => {
-      cleanup()
+      cleanup();
 
       if (socket) {
-        socket.off('newCall')
-        socket.off('callAnswered')
-        socket.off('ICEcandidate')
-        socket.off('callEnded')
+        socket.off('newCall');
+        socket.off('callAnswered');
+        socket.off('ICEcandidate');
+        socket.off('callEnded');
       }
-    }
-  }, [socket])
+    };
+  }, [socket]);
 
   const renderVideoStream = useCallback((
     stream: MediaStream | null,
@@ -367,7 +386,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
       );
     }
     return null;
-  }, [])
+  }, []);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -376,7 +395,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
           {avatarUrl && (
             <Image source={{ uri: avatarUrl }} style={styles.avatar} />
           )}
-          <Text style={styles.username}>{receiverName}</Text>
+          <Text style={styles.username}>{currentUser === callerName ? receiverName : callerName}</Text>
         </View>
         <View style={styles.timerContainer}>
           <View style={[styles.redDot, { 
@@ -405,8 +424,35 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
       </View>
 
       <View style={styles.controlsContainer}>
+        <TouchableOpacity
+          style={[
+            styles.controlButton,
+            isCameraOn && { backgroundColor: "#007FFF" },
+          ]}
+          onPress={toggleCamera}
+        >
+          <Text style={styles.controlText}>{isCameraOn ? "Camera On" : "Camera Off"}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.controlButton,
+            isMicOn && { backgroundColor: "#007FFF" },
+          ]}
+          onPress={toggleMic}
+        >
+          <Text style={styles.controlText}>{isMicOn ? "Mic On" : "Mic Off"}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.controlButton}
+          onPress={switchCamera}
+        >
+          <Text style={styles.controlText}>Flip</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.controlButton} onPress={handleHangUp}>
-          <Text style={styles.controlText}>End Call</Text>
+          <Text style={styles.controlText}>End</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -494,6 +540,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
+    gap: 10,
   },
   controlButton: {
     backgroundColor: "#ff3b30",
