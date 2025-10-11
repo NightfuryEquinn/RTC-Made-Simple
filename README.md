@@ -15,3 +15,4 @@ Check out an React-Native-NestJS example application in [here](https://github.co
 1. Babel configurations
 2. App.json native permissions
 3. Dependencies versions
+4. Android devices tend to crash when remote stream is established

@@ -28,7 +28,11 @@
         "RECORD_AUDIO",
         "INTERNET",
         "WAKE_LOCK",
-        "MODIFY_AUDIO_SETTINGS"
+        "MODIFY_AUDIO_SETTINGS",
+        "BLUETOOTH",
+        "BLUETOOTH_CONNECT",
+        "BLUETOOTH_ADMIN",
+        "BLUETOOTH_SCAN"
       ],
       "package": "com.nightfuryequinn.examplemobile"
     },

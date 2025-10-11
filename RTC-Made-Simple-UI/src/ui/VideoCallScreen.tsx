@@ -16,8 +16,8 @@ const DEFAULT_ICE_SERVERS = [
 const DEFAULT_MEDIA_CONSTRAINTS = {
   audio: true,
   video: {
-    width: 1280,
-    height: 720,
+    width: 640,
+    height: 480,
     frameRate: 30,
     facingMode: 'user'
   }
@@ -176,9 +176,10 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
 
     // @ts-ignore
     pc.addEventListener('track', (event) => {
-      console.log('Track received:', event.streams.length);
+      console.log('Track received:', event.streams.length, 'track kind:', event.track?.kind);
       const [stream] = event.streams;
       if (stream) {
+        console.log('Setting remote stream with', stream.getTracks().length, 'tracks');
         setRemoteStream(stream);
         setConnectionState('connected');
       }
@@ -187,6 +188,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
     // @ts-ignore
     pc.addEventListener('icecandidate', (event) => {
       if (event.candidate && socket) {
+        console.log('Sending ICE candidate');
         socket.emit('ICEcandidate', {
           callerName,
           receiverName,
@@ -196,6 +198,8 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
             candidate: event.candidate.candidate
           }
         });
+      } else if (!event.candidate) {
+        console.log('ICE gathering completed');
       }
     });
 
@@ -206,9 +210,19 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
       setConnectionState(state);
     });
 
+    // @ts-ignore
+    pc.addEventListener('iceconnectionstatechange', () => {
+      console.log('ICE connection state:', pc.iceConnectionState);
+    });
+
+    // @ts-ignore
+    pc.addEventListener('icegatheringstatechange', () => {
+      console.log('ICE gathering state:', pc.iceGatheringState);
+    });
+
     console.log('New peer connection created');
     return pc;
-  }, []);
+  }, [iceServers, socket, callerName, receiverName]);
 
   const initMedia = useCallback(async (): Promise<MediaStream> => {
     try {
@@ -216,20 +230,22 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
       InCallManager.setKeepScreenOn(true);
       InCallManager.setForceSpeakerphoneOn(true);
 
+      console.log('Requesting media with constraints:', JSON.stringify(mediaConstraints));
       const stream = await mediaDevices.getUserMedia(mediaConstraints);
+      console.log('Got media stream with tracks:', stream.getTracks().map(t => t.kind).join(', '));
       setLocalStream(stream);
       return stream;
     } catch (error) {
       console.error('Error init media', error);
       throw error;
     }
-  }, []);
+  }, [mediaConstraints]);
 
   const setupSocketHandlers = useCallback(() => {
     if (!socket || socketHandlersSet.current) return;
     socketHandlersSet.current = true;
 
-    console.log('Setting up socket handlers');
+    console.log('Setting up socket handlers, socket connected:', socket.connected);
     
     socket.off('newCall');
     socket.off('callAnswered');
@@ -238,16 +254,22 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
 
     socket.on('newCall', async (data: { callerName: string, rtcMessage: any }) => {
       try {
-        console.log('Received incoming call offer');
+        console.log('RECEIVED INCOMING CALL OFFER from', data.callerName, 'with SDP type:', data.rtcMessage?.type);
 
-        if (!peerConnection.current) return;
+        if (!peerConnection.current) {
+          console.error('Peer connection not initialized');
+          return;
+        }
 
+        console.log('Setting remote description (offer)');
         await peerConnection.current.setRemoteDescription(
           new RTCSessionDescription(data.rtcMessage)
         );
 
+        console.log('Processing pending ICE candidates');
         await processingPendingIceCandidates();
 
+        console.log('Creating answer');
         const answer = await peerConnection.current.createAnswer();
         await peerConnection.current.setLocalDescription(answer);
 
@@ -257,7 +279,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
           rtcMessage: answer
         });
 
-        console.log('Answer sent');
+        console.log('Answer sent to', data.callerName);
       } catch (error) {
         console.error('Error handling incoming call', error);
         setConnectionState('failed');
@@ -266,15 +288,21 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
 
     socket.on('callAnswered', async (data: { callerName: string, receiverName: string, rtcMessage: any }) => {
       try {
-        console.log('Received call answer');
+        console.log('Received call answer from', data.callerName);
 
-        if (!peerConnection.current) return;
+        if (!peerConnection.current) {
+          console.error('Peer connection not initialized');
+          return;
+        }
 
+        console.log('Setting remote description (answer)');
         await peerConnection.current.setRemoteDescription(
           new RTCSessionDescription(data.rtcMessage)
         );
 
+        console.log('Processing pending ICE candidates');
         await processingPendingIceCandidates();
+        console.log('Call answer processed successfully');
       } catch (error) {
         console.error('Error handling call answer', error);
         setConnectionState('failed');
@@ -283,6 +311,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
 
     socket.on('ICEcandidate', async (data: { sender: string, rtcMessage: any }) => {
       try {
+        console.log('Received ICE candidate from', data.sender);
         const { candidate, id, label } = data.rtcMessage;
         const iceCandidate = new RTCIceCandidate({
           candidate,
@@ -291,8 +320,10 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
         });
         
         if (peerConnection.current?.remoteDescription) {
+          console.log('Adding ICE candidate immediately');
           await peerConnection.current.addIceCandidate(iceCandidate);
         } else {
+          console.log('Queuing ICE candidate - remote description not set yet');
           pendingIceCandidates.current.push(iceCandidate);
         }
       } catch (error) {
@@ -301,47 +332,88 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
     });
 
     socket.on('callEnded', async () => {
+      console.log('Call ended by remote peer');
       socket.emit('joinCallRoom', { roomName: currentUser });
 
       const formattedDuration = formatTime(elapsed);
       cleanup();
       onCallEnd(formattedDuration);
     });
-  }, [socket, receiverName, processingPendingIceCandidates, currentUser]);
+
+    console.log('All socket handlers registered successfully');
+  }, [socket, receiverName, processingPendingIceCandidates, currentUser, elapsed, cleanup, onCallEnd]);
 
   const initCall = useCallback(async () => {
     try {
-      if (isInitialized.current || peerConnection.current) return;
+      if (isInitialized.current || peerConnection.current) {
+        console.log('Already initialized, skipping');
+        return;
+      }
       isInitialized.current = true;
 
+      console.log('Initializing call...');
+      console.log('Current user:', currentUser, 'Caller:', callerName, 'Receiver:', receiverName);
       setConnectionState('connecting');
 
-      // Both users must join the receiver's room for WebRTC signaling
-      socket?.emit('joinCallRoom', { roomName: receiverName });
-      console.log(`${currentUser} joined call room ${receiverName}`);
+      // Check socket connection
+      if (!socket) {
+        console.error('Socket is not available');
+        setConnectionState('failed');
+        return;
+      }
 
-      peerConnection.current = createPeerConnection();
-      const stream = await initMedia();
-      stream.getTracks().forEach(track => peerConnection.current?.addTrack(track, stream));
+      if (!socket.connected) {
+        console.error('Socket is not connected');
+        setConnectionState('failed');
+        return;
+      }
 
+      console.log('Socket is connected, ID:', socket.id);
+
+      // Setup socket handlers FIRST before joining room
       setupSocketHandlers();
 
+      // Both users must join the receiver's room for WebRTC signaling
+      socket.emit('joinCallRoom', { roomName: receiverName });
+      console.log(`${currentUser} joined call room ${receiverName}`);
+
+      // Wait a bit to ensure the room join is processed
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      peerConnection.current = createPeerConnection();
+      console.log('Getting user media...');
+      const stream = await initMedia();
+      
+      console.log('Adding tracks to peer connection:', stream.getTracks().length);
+      stream.getTracks().forEach(track => {
+        console.log('Adding track:', track.kind, 'enabled:', track.enabled);
+        peerConnection.current?.addTrack(track, stream);
+      });
+
       if (currentUser === callerName) {
+        // Caller waits a bit longer to ensure receiver is ready
+        console.log('Waiting for receiver to be ready...');
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        console.log('Creating offer as caller');
         const offer = await peerConnection.current?.createOffer();
         await peerConnection.current?.setLocalDescription(offer);
 
+        console.log('Sending offer to receiver in room:', receiverName);
         socket?.emit('newCall', {
           receiverName,
           rtcMessage: offer
         });
 
         console.log('Offer sent to', receiverName);
+      } else {
+        console.log('Ready as receiver, waiting for offer in room:', receiverName);
       }
     } catch (error) {
       console.error('Error init call', error);
       setConnectionState('failed');
     }
-  }, [currentUser, callerName, receiverName, socket]);
+  }, [currentUser, callerName, receiverName, socket, createPeerConnection, initMedia, setupSocketHandlers]);
 
   useEffect(() => {
     intervalRef.current = window.setInterval(() => {
@@ -352,6 +424,23 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
       if (intervalRef.current !== null) clearInterval(intervalRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (remoteStream) {
+      console.log('Remote stream updated:', {
+        id: remoteStream.id,
+        active: remoteStream.active,
+        tracks: remoteStream.getTracks().map(t => ({
+          kind: t.kind,
+          enabled: t.enabled,
+          readyState: t.readyState,
+          id: t.id
+        }))
+      });
+    } else {
+      console.log('Remote stream is null');
+    }
+  }, [remoteStream]);
 
   useEffect(() => {
     if (socket) {

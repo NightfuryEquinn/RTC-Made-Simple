@@ -1,13 +1,35 @@
 import { CallOverlay, useVideoSocket } from "@nightfuryequinn/rtc-made-simple-ui";
 import { useRouter } from "expo-router";
-import { useState } from "react";
-import { Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import * as Device from 'expo-device';
 
 export default function Index() {
   const router = useRouter();
   
-  const [currentUser] = useState(Platform.OS === 'android' ? 'user123' : 'user456');
-  const [receiverName] = useState(Platform.OS === 'android' ? 'user456' : 'user123');
+  const [currentUser, setCurrentUser] = useState<string>('');
+  const [receiverName, setReceiverName] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    // Get device name and set default receiver
+    const initializeDeviceInfo = async () => {
+      try {
+        const deviceName = Device.deviceName || `${Platform.OS}-${Device.modelName}` || Platform.OS;
+        setCurrentUser(deviceName);
+        
+        console.log('Device initialized:', deviceName);
+      } catch (error) {
+        console.error('Error getting device info:', error);
+        setCurrentUser(`${Platform.OS}-device`);
+        setReceiverName('other-device');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initializeDeviceInfo();
+  }, []);
   
   const { 
     incomingCall, 
@@ -59,16 +81,37 @@ export default function Index() {
   };
 
   const handleStartCall = () => {
+    if (!receiverName.trim()) {
+      alert('Please enter receiver name');
+      return;
+    }
     initiateCall(receiverName, 12345); // conversationId: 12345
   };
+
+  if (isLoading) {
+    return (
+      <View style={styles.container}>
+        <Text>Loading device info...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>RTC Made Simple - Video Call Demo</Text>
       
       <View style={styles.userInfo}>
-        <Text>Current User: {currentUser}</Text>
-        <Text>Receiver: {receiverName}</Text>
+        <Text style={styles.label}>This Device (You):</Text>
+        <Text style={styles.deviceName}>{currentUser}</Text>
+        
+        <Text style={[styles.label, { marginTop: 20 }]}>Call To:</Text>
+        <TextInput
+          style={styles.input}
+          value={receiverName}
+          onChangeText={setReceiverName}
+          placeholder="Enter receiver device name"
+          placeholderTextColor="#999"
+        />
       </View>
 
       <TouchableOpacity 
@@ -98,22 +141,55 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
+    backgroundColor: '#f5f5f5',
   },
   title: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 20,
+    marginBottom: 40,
+    color: '#333',
+    textAlign: 'center',
   },
   userInfo: {
     marginBottom: 30,
     alignItems: 'center',
+    width: '100%',
+    paddingHorizontal: 20,
+  },
+  label: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 8,
+    fontWeight: '500',
+  },
+  deviceName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#007AFF',
+    marginBottom: 10,
+  },
+  input: {
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    padding: 12,
+    width: '100%',
+    maxWidth: 300,
+    fontSize: 16,
+    color: '#333',
   },
   button: {
     backgroundColor: '#007AFF',
     padding: 15,
     borderRadius: 10,
-    minWidth: 200,
+    minWidth: 250,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   buttonText: {
     color: 'white',

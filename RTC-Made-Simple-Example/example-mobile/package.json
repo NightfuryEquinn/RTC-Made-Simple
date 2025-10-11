@@ -13,6 +13,7 @@
     "expo": "~52.0.47",
     "expo-asset": "~11.0.5",
     "expo-constants": "~17.0.8",
+    "expo-device": "~7.0.3",
     "expo-router": "~4.0.21",
     "expo-splash-screen": "~0.29.24",
     "expo-status-bar": "~2.0.1",
