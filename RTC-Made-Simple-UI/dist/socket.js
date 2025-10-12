@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.disconnectVideoSocket = exports.getVideoSocket = exports.createVideoSocket = void 0;
+exports.disconnectChatSocket = exports.getChatSocket = exports.createChatSocket = exports.disconnectVideoSocket = exports.getVideoSocket = exports.createVideoSocket = void 0;
 const socket_io_client_1 = require("socket.io-client");
 let videoSocket = null;
 const createVideoSocket = (callerName, baseUrl) => {
@@ -36,4 +36,39 @@ const disconnectVideoSocket = () => {
     videoSocket = null;
 };
 exports.disconnectVideoSocket = disconnectVideoSocket;
+// Chat Socket
+let chatSocket = null;
+const createChatSocket = (userName, roomName, baseUrl) => {
+    if (chatSocket?.connected)
+        return chatSocket;
+    chatSocket = (0, socket_io_client_1.io)(baseUrl, {
+        transports: ['websocket'],
+        path: '/chat',
+        query: {
+            userName: userName,
+            roomName: roomName,
+        },
+        autoConnect: false,
+        forceNew: false
+    });
+    chatSocket.on('connect', () => {
+        console.log(`Chat socket connected for ${userName} in room ${roomName}`);
+    });
+    chatSocket.on('disconnect', () => {
+        console.log(`Chat socket disconnected`);
+    });
+    chatSocket.on('connect_error', (error) => {
+        console.log(`Chat socket connection error`, error);
+    });
+    return chatSocket;
+};
+exports.createChatSocket = createChatSocket;
+const getChatSocket = () => chatSocket;
+exports.getChatSocket = getChatSocket;
+const disconnectChatSocket = () => {
+    if (chatSocket?.connected)
+        chatSocket.disconnect();
+    chatSocket = null;
+};
+exports.disconnectChatSocket = disconnectChatSocket;
 //# sourceMappingURL=socket.js.map

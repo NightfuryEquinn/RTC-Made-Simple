@@ -21,7 +21,7 @@
     "@nestjs/platform-socket.io": "^11.1.6",
     "@nestjs/swagger": "^11.2.0",
     "@nestjs/websockets": "^11.1.6",
-    "@nightfuryequinn/rtc-made-simple-server": "file:../../RTC-Made-Simple-Server/nightfuryequinn-rtc-made-simple-server-1.0.2.tgz",
+    "@nightfuryequinn/rtc-made-simple-server": "file:../../RTC-Made-Simple-Server/nightfuryequinn-rtc-made-simple-server-2.0.0.tgz",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "reflect-metadata": "^0.2.2",

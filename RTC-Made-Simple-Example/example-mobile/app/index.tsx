@@ -9,6 +9,7 @@ export default function Index() {
   
   const [currentUser, setCurrentUser] = useState<string>('');
   const [receiverName, setReceiverName] = useState<string>('');
+  const [chatRoomName, setChatRoomName] = useState<string>('general');
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -88,6 +89,19 @@ export default function Index() {
     initiateCall(receiverName, 12345); // conversationId: 12345
   };
 
+  const handleOpenChat = () => {
+    if (!chatRoomName.trim()) {
+      alert('Please enter chat room name');
+      return;
+    }
+    router.push({
+      pathname: '/chat',
+      params: {
+        roomName: chatRoomName
+      }
+    });
+  };
+
   if (isLoading) {
     return (
       <View style={styles.container}>
@@ -98,13 +112,17 @@ export default function Index() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>RTC Made Simple - Video Call Demo</Text>
+      <Text style={styles.title}>RTC Made Simple Demo</Text>
       
       <View style={styles.userInfo}>
         <Text style={styles.label}>This Device (You):</Text>
         <Text style={styles.deviceName}>{currentUser}</Text>
-        
-        <Text style={[styles.label, { marginTop: 20 }]}>Call To:</Text>
+      </View>
+
+      {/* Video Call Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>📹 Video Call</Text>
+        <Text style={styles.label}>Call To:</Text>
         <TextInput
           style={styles.input}
           value={receiverName}
@@ -112,14 +130,32 @@ export default function Index() {
           placeholder="Enter receiver device name"
           placeholderTextColor="#999"
         />
+        <TouchableOpacity 
+          style={styles.button} 
+          onPress={handleStartCall}
+        >
+          <Text style={styles.buttonText}>Start Video Call</Text>
+        </TouchableOpacity>
       </View>
 
-      <TouchableOpacity 
-        style={styles.button} 
-        onPress={handleStartCall}
-      >
-        <Text style={styles.buttonText}>Start Video Call</Text>
-      </TouchableOpacity>
+      {/* Chat Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>💬 Chat</Text>
+        <Text style={styles.label}>Room Name:</Text>
+        <TextInput
+          style={styles.input}
+          value={chatRoomName}
+          onChangeText={setChatRoomName}
+          placeholder="Enter chat room name"
+          placeholderTextColor="#999"
+        />
+        <TouchableOpacity 
+          style={[styles.button, styles.chatButton]} 
+          onPress={handleOpenChat}
+        >
+          <Text style={styles.buttonText}>Open Chat Room</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* Call overlay for incoming calls */}
       {isCallVisible && incomingCall && (
@@ -144,9 +180,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
   },
   title: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
-    marginBottom: 40,
+    marginBottom: 30,
     color: '#333',
     textAlign: 'center',
   },
@@ -155,6 +191,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     width: '100%',
     paddingHorizontal: 20,
+    paddingVertical: 15,
+    backgroundColor: 'white',
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 3,
+  },
+  section: {
+    width: '100%',
+    marginBottom: 25,
+    padding: 20,
+    backgroundColor: 'white',
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 3,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    color: '#333',
+    textAlign: 'center',
   },
   label: {
     fontSize: 14,
@@ -166,30 +229,32 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#007AFF',
-    marginBottom: 10,
+    marginTop: 5,
   },
   input: {
-    backgroundColor: 'white',
+    backgroundColor: '#f9f9f9',
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 10,
     padding: 12,
     width: '100%',
-    maxWidth: 300,
     fontSize: 16,
     color: '#333',
+    marginBottom: 15,
   },
   button: {
     backgroundColor: '#007AFF',
     padding: 15,
     borderRadius: 10,
-    minWidth: 250,
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
+  },
+  chatButton: {
+    backgroundColor: '#34C759',
   },
   buttonText: {
     color: 'white',

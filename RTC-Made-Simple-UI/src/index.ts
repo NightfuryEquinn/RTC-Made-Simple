@@ -19,3 +19,25 @@ export type {
 
 // Utils
 export { formatTime } from './helpers/formatTime';
+
+// Chat Hooks
+export { useChatSocket } from './hooks/useChatSocket';
+export { useChatStore } from './hooks/useChatStore';
+
+// Chat Components
+export { ChatWindow } from './ui/ChatWindow';
+export { MessageItem } from './ui/MessageItem';
+
+// Chat Services
+export { createChatSocket, getChatSocket, disconnectChatSocket } from './socket';
+
+// Chat Types
+export type { 
+  ChatMessage,
+  UserJoinedData,
+  UserLeftData,
+  UserTypingData,
+  MessageReadReceiptData,
+  MessageDeletedData,
+  ChatConfig
+} from './types/chat.types';
