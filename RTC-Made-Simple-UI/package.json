@@ -1,6 +1,6 @@
 {
   "name": "@nightfuryequinn/rtc-made-simple-ui",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "React Native video calling components with WebRTC support",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
