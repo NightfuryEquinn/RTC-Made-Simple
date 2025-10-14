@@ -1,6 +1,6 @@
 {
   "name": "@nightfuryequinn/rtc-made-simple-server",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "WebSocket-based video calling server for NestJS application",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
