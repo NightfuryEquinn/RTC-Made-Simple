@@ -37,23 +37,37 @@ exports.ChatWindow = void 0;
 const react_1 = __importStar(require("react"));
 const react_native_1 = require("react-native");
 const useChatSocket_1 = require("../hooks/useChatSocket");
-const ChatWindow = ({ userName, roomName, baseUrl, onMessageReceived, placeholder = 'Type a message...', emptyStateText = 'No messages yet', showTypingIndicator = true }) => {
+const MessageItem_1 = require("./MessageItem");
+const ChatWindow = ({ userName, roomName, baseUrl, onMessageReceived, placeholder = 'Type a message...', emptyStateText = 'No messages yet', showTypingIndicator = true, maxMessages, loadHistory = true }) => {
     const [inputText, setInputText] = (0, react_1.useState)('');
     const flatListRef = (0, react_1.useRef)(null);
-    const { messages, typingUsers, sendMessage, setTyping, markMessageAsRead } = (0, useChatSocket_1.useChatSocket)({
+    const markedReadRef = (0, react_1.useRef)(new Set());
+    const { messages, typingUsers, isConnected, connectionError, sendMessage, setTyping, markMessageAsRead, deleteMessage } = (0, useChatSocket_1.useChatSocket)({
         userName,
         roomName,
         baseUrl,
-        onMessageReceived
+        onMessageReceived,
+        maxMessages,
+        loadHistory
     });
     (0, react_1.useEffect)(() => {
-        // Auto-scroll to bottom when new messages arrive
         if (messages.length > 0) {
             setTimeout(() => {
                 flatListRef.current?.scrollToEnd({ animated: true });
             }, 100);
         }
     }, [messages]);
+    (0, react_1.useEffect)(() => {
+        messages.forEach((message) => {
+            if (message.messageId &&
+                message.senderName !== userName &&
+                !message.isRead &&
+                !markedReadRef.current.has(message.messageId)) {
+                markedReadRef.current.add(message.messageId);
+                markMessageAsRead(message.messageId, message.senderName);
+            }
+        });
+    }, [messages, userName, markMessageAsRead]);
     const handleSendMessage = () => {
         if (inputText.trim()) {
             sendMessage(inputText);
@@ -65,35 +79,15 @@ const ChatWindow = ({ userName, roomName, baseUrl, onMessageReceived, placeholde
         setInputText(text);
         setTyping(text.length > 0);
     };
-    const renderMessage = ({ item }) => {
-        const isOwnMessage = item.senderName === userName;
-        return (<react_native_1.View style={[
-                styles.messageContainer,
-                isOwnMessage ? styles.ownMessage : styles.otherMessage
-            ]}>
-        {!isOwnMessage && (<react_native_1.Text style={styles.senderName}>{item.senderName}</react_native_1.Text>)}
-        <react_native_1.View style={[
-                styles.messageBubble,
-                isOwnMessage ? styles.ownBubble : styles.otherBubble
-            ]}>
-          <react_native_1.Text style={[
-                styles.messageText,
-                isOwnMessage ? styles.ownMessageText : styles.otherMessageText
-            ]}>
-            {item.message}
-          </react_native_1.Text>
-          <react_native_1.Text style={styles.timestamp}>
-            {new Date(item.timestamp).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit'
-            })}
-          </react_native_1.Text>
-        </react_native_1.View>
-      </react_native_1.View>);
-    };
+    const renderMessage = ({ item }) => (<MessageItem_1.MessageItem message={item} isOwnMessage={item.senderName === userName} onLongPress={(message) => {
+            if (message.messageId && message.senderName === userName) {
+                deleteMessage(message.messageId);
+            }
+        }}/>);
     const renderTypingIndicator = () => {
-        if (!showTypingIndicator || typingUsers.length === 0)
+        if (!showTypingIndicator || typingUsers.length === 0) {
             return null;
+        }
         const typingText = typingUsers.length === 1
             ? `${typingUsers[0]} is typing...`
             : `${typingUsers.length} people are typing...`;
@@ -104,9 +98,16 @@ const ChatWindow = ({ userName, roomName, baseUrl, onMessageReceived, placeholde
     return (<react_native_1.KeyboardAvoidingView style={styles.container} behavior={react_native_1.Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={react_native_1.Platform.OS === 'ios' ? 90 : 0}>
       <react_native_1.View style={styles.header}>
         <react_native_1.Text style={styles.headerText}>{roomName}</react_native_1.Text>
+        <react_native_1.Text style={styles.connectionText}>
+          {connectionError
+            ? connectionError
+            : isConnected
+                ? 'Connected'
+                : 'Connecting...'}
+        </react_native_1.Text>
       </react_native_1.View>
 
-      <react_native_1.FlatList ref={flatListRef} data={messages} renderItem={renderMessage} keyExtractor={(item, index) => item.messageId || `message-${index}`} contentContainerStyle={styles.messagesList} ListEmptyComponent={<react_native_1.View style={styles.emptyState}>
+      <react_native_1.FlatList ref={flatListRef} data={messages} renderItem={renderMessage} keyExtractor={(item, index) => item.messageId || item.clientMessageId || `message-${index}`} contentContainerStyle={styles.messagesList} ListEmptyComponent={<react_native_1.View style={styles.emptyState}>
             <react_native_1.Text style={styles.emptyStateText}>{emptyStateText}</react_native_1.Text>
           </react_native_1.View>}/>
 
@@ -124,79 +125,38 @@ exports.ChatWindow = ChatWindow;
 const styles = react_native_1.StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#f5f5f5',
+        backgroundColor: '#f5f5f5'
     },
     header: {
         backgroundColor: '#007AFF',
         padding: 16,
         alignItems: 'center',
         borderBottomWidth: 1,
-        borderBottomColor: '#e0e0e0',
+        borderBottomColor: '#e0e0e0'
     },
     headerText: {
         color: '#fff',
         fontSize: 18,
-        fontWeight: 'bold',
+        fontWeight: 'bold'
+    },
+    connectionText: {
+        color: 'rgba(255,255,255,0.85)',
+        fontSize: 12,
+        marginTop: 4
     },
     messagesList: {
         padding: 16,
-        flexGrow: 1,
-    },
-    messageContainer: {
-        marginBottom: 16,
-        maxWidth: '80%',
-    },
-    ownMessage: {
-        alignSelf: 'flex-end',
-        alignItems: 'flex-end',
-    },
-    otherMessage: {
-        alignSelf: 'flex-start',
-        alignItems: 'flex-start',
-    },
-    senderName: {
-        fontSize: 12,
-        color: '#666',
-        marginBottom: 4,
-        marginLeft: 8,
-    },
-    messageBubble: {
-        borderRadius: 16,
-        padding: 12,
-        maxWidth: '100%',
-    },
-    ownBubble: {
-        backgroundColor: '#007AFF',
-    },
-    otherBubble: {
-        backgroundColor: '#fff',
-        borderWidth: 1,
-        borderColor: '#e0e0e0',
-    },
-    messageText: {
-        fontSize: 16,
-        marginBottom: 4,
-    },
-    ownMessageText: {
-        color: '#fff',
-    },
-    otherMessageText: {
-        color: '#333',
-    },
-    timestamp: {
-        fontSize: 10,
-        color: 'rgba(255,255,255,0.7)',
-        alignSelf: 'flex-end',
+        flexGrow: 1
     },
     typingIndicator: {
         padding: 8,
         paddingHorizontal: 16,
-        backgroundColor: '#f9f9f9',
+        backgroundColor: '#f9f9f9'
     },
     typingText: {
         fontSize: 12,
         color: '#666',
-        fontStyle: 'italic',
+        fontStyle: 'italic'
     },
     inputContainer: {
         flexDirection: 'row',
@@ -204,7 +164,7 @@ const styles = react_native_1.StyleSheet.create({
         backgroundColor: '#fff',
         borderTopWidth: 1,
         borderTopColor: '#e0e0e0',
-        alignItems: 'flex-end',
+        alignItems: 'flex-end'
     },
     input: {
         flex: 1,
@@ -214,7 +174,7 @@ const styles = react_native_1.StyleSheet.create({
         paddingVertical: 8,
         marginRight: 8,
         maxHeight: 100,
-        fontSize: 16,
+        fontSize: 16
     },
     sendButton: {
         backgroundColor: '#007AFF',
@@ -222,25 +182,25 @@ const styles = react_native_1.StyleSheet.create({
         paddingHorizontal: 20,
         paddingVertical: 10,
         justifyContent: 'center',
-        alignItems: 'center',
+        alignItems: 'center'
     },
     sendButtonDisabled: {
-        backgroundColor: '#ccc',
+        backgroundColor: '#ccc'
     },
     sendButtonText: {
         color: '#fff',
         fontWeight: 'bold',
-        fontSize: 16,
+        fontSize: 16
     },
     emptyState: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        paddingVertical: 40,
+        paddingVertical: 40
     },
     emptyStateText: {
         fontSize: 16,
-        color: '#999',
-    },
+        color: '#999'
+    }
 });
 //# sourceMappingURL=ChatWindow.js.map

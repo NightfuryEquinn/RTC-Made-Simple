@@ -1,0 +1,29 @@
+---
+description: RTC-Made-Simple package layout, publish flow, and edit boundaries
+alwaysApply: true
+---
+
+# Repository Layout
+
+- `RTC-Made-Simple-Server/` — NestJS library (`@nightfuryequinn/rtc-made-simple-server`)
+- `RTC-Made-Simple-UI/` — React Native library (`@nightfuryequinn/rtc-made-simple-ui`)
+- `RTC-Made-Simple-Example/` — Nest backend + Expo mobile consumers
+
+## Edit Boundaries
+
+- Change source under each package's `src/` only
+- Do not hand-edit `dist/` or `*.tgz`; rebuild with `npm run build`
+- Examples depend on `file:../../RTC-Made-Simple-*` directories — rebuild libs before testing examples
+- Preserve public event names (`incomingCall`, `sendMessage`, `newCall`, etc.) and `Module.forRoot` / hook signatures unless an intentional breaking change is requested
+
+## Quality Gates
+
+```bash
+# Server
+cd RTC-Made-Simple-Server && npm run typecheck && npm test && npm run build
+
+# UI
+cd RTC-Made-Simple-UI && npm run typecheck && npm test && npm run build
+```
+
+CI on `develop` must typecheck, test, and build before publish.

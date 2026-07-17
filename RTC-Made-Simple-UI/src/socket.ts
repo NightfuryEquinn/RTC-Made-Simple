@@ -1,78 +1,115 @@
 import { io, Socket } from "socket.io-client";
 
-let videoSocket: Socket | null = null
+let videoSocket: Socket | null = null;
+let videoSocketKey: string | null = null;
 
-export const createVideoSocket = (callerName: string, baseUrl: string) => {
-  if (videoSocket?.connected) return videoSocket
+let chatSocket: Socket | null = null;
+let chatSocketKey: string | null = null;
 
+const buildKey = (...parts: Array<string | undefined>) => parts.join('|');
+
+export const createVideoSocket = (callerName: string, baseUrl: string): Socket => {
+  const key = buildKey(baseUrl, callerName);
+
+  if (videoSocket && videoSocketKey === key) {
+    return videoSocket;
+  }
+
+  if (videoSocket) {
+    videoSocket.removeAllListeners();
+    videoSocket.disconnect();
+    videoSocket = null;
+  }
+
+  videoSocketKey = key;
   videoSocket = io(baseUrl, {
     transports: ['websocket'],
     path: '/call',
     query: {
-      callerName: callerName,
-      roomName: callerName,
+      callerName,
+      roomName: callerName
     },
     autoConnect: false,
-    forceNew: false
-  })
+    forceNew: true
+  });
 
   videoSocket.on('connect', () => {
-    console.log(`Video socket connected for ${callerName} in own room`)
-  })
+    console.log(`Video socket connected for ${callerName}`);
+  });
 
-  videoSocket.on('disconnect', () => {
-    console.log(`Video socket disconnected`)
-  })
+  videoSocket.on('disconnect', (reason) => {
+    console.log(`Video socket disconnected: ${reason}`);
+  });
 
   videoSocket.on('connect_error', (error) => {
-    console.log(`Video socket connection error`)
-  })
+    console.log('Video socket connection error', error.message);
+  });
 
-  return videoSocket
-}
+  return videoSocket;
+};
 
-export const getVideoSocket = (): Socket | null => videoSocket
+export const getVideoSocket = (): Socket | null => videoSocket;
 
 export const disconnectVideoSocket = () => {
-  if (videoSocket?.connected) videoSocket.disconnect()
-  videoSocket = null
-}
+  if (videoSocket) {
+    videoSocket.removeAllListeners();
+    videoSocket.disconnect();
+  }
+  videoSocket = null;
+  videoSocketKey = null;
+};
 
-// Chat Socket
-let chatSocket: Socket | null = null
+export const createChatSocket = (
+  userName: string,
+  roomName: string,
+  baseUrl: string
+): Socket => {
+  const key = buildKey(baseUrl, userName, roomName);
 
-export const createChatSocket = (userName: string, roomName: string, baseUrl: string) => {
-  if (chatSocket?.connected) return chatSocket
+  if (chatSocket && chatSocketKey === key) {
+    return chatSocket;
+  }
 
+  if (chatSocket) {
+    chatSocket.removeAllListeners();
+    chatSocket.disconnect();
+    chatSocket = null;
+  }
+
+  chatSocketKey = key;
   chatSocket = io(baseUrl, {
     transports: ['websocket'],
     path: '/chat',
     query: {
-      userName: userName,
-      roomName: roomName,
+      userName,
+      roomName
     },
     autoConnect: false,
-    forceNew: false
-  })
+    forceNew: true
+  });
 
   chatSocket.on('connect', () => {
-    console.log(`Chat socket connected for ${userName} in room ${roomName}`)
-  })
+    console.log(`Chat socket connected for ${userName} in room ${roomName}`);
+  });
 
-  chatSocket.on('disconnect', () => {
-    console.log(`Chat socket disconnected`)
-  })
+  chatSocket.on('disconnect', (reason) => {
+    console.log(`Chat socket disconnected: ${reason}`);
+  });
 
   chatSocket.on('connect_error', (error) => {
-    console.log(`Chat socket connection error`, error)
-  })
+    console.log('Chat socket connection error', error.message);
+  });
 
-  return chatSocket
-}
+  return chatSocket;
+};
 
-export const getChatSocket = (): Socket | null => chatSocket
+export const getChatSocket = (): Socket | null => chatSocket;
 
 export const disconnectChatSocket = () => {
-  if (chatSocket?.connected) chatSocket.disconnect()
-  chatSocket = null
-}
+  if (chatSocket) {
+    chatSocket.removeAllListeners();
+    chatSocket.disconnect();
+  }
+  chatSocket = null;
+  chatSocketKey = null;
+};

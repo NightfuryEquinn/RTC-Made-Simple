@@ -17,53 +17,64 @@ export class ChatService implements ChatServiceInterface {
     roomName: string,
     metadata?: any
   ): Promise<MessageResponseDto> {
+    let callbackResult: void | MessageResponseDto | Partial<MessageResponseDto> =
+      undefined;
+
     if (this.callbacks?.onMessageSent) {
-      await this.callbacks.onMessageSent(
+      callbackResult = await this.callbacks.onMessageSent(
         senderName,
         receiverName,
         message,
         roomName,
         metadata
-      )
+      );
     }
 
+    const messageId =
+      (callbackResult && typeof callbackResult === 'object' && callbackResult.messageId) ||
+      Math.random().toString(36).substring(2, 15);
+
     return new MessageResponseDto({
-      messageId: Math.random().toString(36).substring(2, 15),
-      senderName: senderName,
-      receiverName: receiverName,
-      message: message,
-      roomName: roomName,
-      timestamp: new Date().toISOString(),
-      metadata: metadata
-    })
+      messageId,
+      senderName,
+      receiverName,
+      message,
+      roomName,
+      timestamp:
+        (callbackResult && typeof callbackResult === 'object' && callbackResult.timestamp) ||
+        new Date().toISOString(),
+      metadata:
+        (callbackResult && typeof callbackResult === 'object' && callbackResult.metadata) ||
+        metadata
+    });
   }
 
   async markMessageAsRead(
     messageId: string,
     readBy: string
-  ): Promise<any> {
+  ): Promise<{ message: string; statusCode: number }> {
     if (this.callbacks?.onMessageRead) {
-      await this.callbacks.onMessageRead(messageId, readBy)
+      await this.callbacks.onMessageRead(messageId, readBy);
     }
 
     return {
       message: 'Message marked as read',
       statusCode: 200
-    }
+    };
   }
 
   async deleteMessage(
     messageId: string,
     deletedBy: string
-  ): Promise<any> {
+  ): Promise<{ message: string; statusCode: number }> {
     if (this.callbacks?.onMessageDeleted) {
-      await this.callbacks.onMessageDeleted(messageId, deletedBy)
+      await this.callbacks.onMessageDeleted(messageId, deletedBy);
     }
 
     return {
       message: 'Message deleted successfully',
       statusCode: 200
-    }
+    };
   }
 
   async getMessages(
@@ -71,9 +82,20 @@ export class ChatService implements ChatServiceInterface {
     limit?: number
   ): Promise<MessageResponseDto[]> {
     if (this.callbacks?.onGetMessages) {
-      return await this.callbacks.onGetMessages(roomName, limit)
+      return await this.callbacks.onGetMessages(roomName, limit);
     }
 
-    return []
+    return [];
+  }
+
+  async canConnect(
+    userName: string,
+    roomName: string | undefined,
+    handshake: Record<string, unknown>
+  ): Promise<boolean> {
+    if (!this.callbacks?.canConnect) {
+      return true;
+    }
+    return Boolean(await this.callbacks.canConnect(userName, roomName, handshake));
   }
 }

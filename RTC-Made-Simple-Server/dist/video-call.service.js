@@ -19,9 +19,9 @@ let VideoCallService = class VideoCallService {
     constructor(callbacks) {
         this.callbacks = callbacks;
     }
-    async createCall(callerName, receiverName) {
+    async createCall(callerName, receiverName, conversationId) {
         if (this.callbacks?.onCallCreated) {
-            await this.callbacks.onCallCreated(callerName, receiverName);
+            await this.callbacks.onCallCreated(callerName, receiverName, conversationId);
         }
         return new response_call_dto_1.ResponseCallDto({
             callId: Math.random().toString(36).substring(2, 15),
@@ -37,6 +37,12 @@ let VideoCallService = class VideoCallService {
             message: 'Call ended successfully',
             statusCode: 200
         };
+    }
+    async canConnect(callerName, roomName, handshake) {
+        if (!this.callbacks?.canConnect) {
+            return true;
+        }
+        return Boolean(await this.callbacks.canConnect(callerName, roomName, handshake));
     }
 };
 exports.VideoCallService = VideoCallService;

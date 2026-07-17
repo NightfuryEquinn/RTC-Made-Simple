@@ -1,2 +1,15 @@
+src/
+*.ts
+!dist/**/*.d.ts
+*.tgz
 *.log
 .DS_Store
+tsconfig.json
+coverage/
+*.spec.ts
+__tests__/
+node_modules/
+.git/
+.gitignore
+*.md
+!README.md

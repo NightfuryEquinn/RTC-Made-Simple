@@ -1,43 +1,70 @@
 import { Module } from '@nestjs/common';
+import {
+  CallStatus,
+  ChatModule,
+  MessageResponseDto,
+  VideoCallModule,
+} from '@nightfuryequinn/rtc-made-simple-server';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { VideoCallModule, ChatModule } from '@nightfuryequinn/rtc-made-simple-server';
+
+const messageStore = new Map<string, MessageResponseDto[]>();
 
 @Module({
   imports: [
     VideoCallModule.forRoot({
       callbacks: {
-        onCallCreated: async (callerName: string, receiverName: string) => {
-          console.log(`Call created: ${callerName} → ${receiverName}`);
-          // Add custom logic: save to database, send notifications, etc.
+        onCallCreated: async (callerName, receiverName, conversationId) => {
+          console.log(
+            `Call created: ${callerName} → ${receiverName} (conversation ${conversationId ?? 'n/a'})`,
+          );
         },
-        onCallEnded: async (callerName: string, receiverName: string, status: string) => {
+        onCallEnded: async (callerName, receiverName, status: CallStatus) => {
           console.log(`Call ended: ${callerName} → ${receiverName}, status: ${status}`);
-          // Add custom logic: update database, analytics, etc.
         },
-      }
+        // Example gate: always allow in demo. Replace with auth checks in production.
+        canConnect: async () => true,
+      },
     }),
     ChatModule.forRoot({
       callbacks: {
         onMessageSent: async (senderName, receiverName, message, roomName, metadata) => {
-          console.log(`💬 Message from ${senderName} in ${roomName}: ${message}`);
-          // Add custom logic: save to database, moderate content, etc.
+          const saved = new MessageResponseDto({
+            messageId: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            senderName,
+            receiverName,
+            message,
+            roomName,
+            timestamp: new Date().toISOString(),
+            metadata,
+          });
+
+          const existing = messageStore.get(roomName) ?? [];
+          existing.push(saved);
+          messageStore.set(roomName, existing.slice(-200));
+
+          console.log(`Message from ${senderName} in ${roomName}: ${message}`);
+          return saved;
         },
         onMessageRead: async (messageId, readBy) => {
-          console.log(`✓ Message ${messageId} read by ${readBy}`);
-          // Add custom logic: update read status in database
+          console.log(`Message ${messageId} read by ${readBy}`);
         },
         onMessageDeleted: async (messageId, deletedBy) => {
-          console.log(`🗑️ Message ${messageId} deleted by ${deletedBy}`);
-          // Add custom logic: soft delete in database
+          for (const [roomName, messages] of messageStore.entries()) {
+            messageStore.set(
+              roomName,
+              messages.filter((message) => message.messageId !== messageId),
+            );
+          }
+          console.log(`Message ${messageId} deleted by ${deletedBy}`);
         },
-        onGetMessages: async (roomName, limit) => {
-          console.log(`📥 Fetching messages for room ${roomName}, limit: ${limit}`);
-          // Add custom logic: fetch messages from database
-          return [];
-        }
-      }
-    })
+        onGetMessages: async (roomName, limit = 50) => {
+          const messages = messageStore.get(roomName) ?? [];
+          return messages.slice(-limit);
+        },
+        canConnect: async () => true,
+      },
+    }),
   ],
   controllers: [AppController],
   providers: [AppService],

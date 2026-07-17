@@ -6,6 +6,9 @@ export declare class VideoCallController {
     private videoCallService;
     constructor(videoCallService: VideoCallService);
     createCall(body: CreateCallDto): Promise<ResponseCallDto>;
-    endCall(body: EndCallDto): Promise<any>;
+    endCall(body: EndCallDto): Promise<{
+        message: string;
+        statusCode: number;
+    }>;
 }
 //# sourceMappingURL=video-call.controller.d.ts.map

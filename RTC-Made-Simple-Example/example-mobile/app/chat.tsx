@@ -1,29 +1,34 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  StyleSheet, 
-  Platform, 
-  KeyboardAvoidingView, 
-  SafeAreaView 
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  StyleSheet,
+  View
 } from 'react-native';
 import { ChatWindow } from '@nightfuryequinn/rtc-made-simple-ui';
 import { useLocalSearchParams } from 'expo-router';
 import * as Device from 'expo-device';
 
+const DEFAULT_HOST =
+  Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
+
 export default function ChatScreen() {
   const params = useLocalSearchParams();
   const [currentUser, setCurrentUser] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
-
-  // Get roomName from params or default to 'general'
   const roomName = (params.roomName as string) || 'general';
+  const baseUrl = useMemo(
+    () => process.env.EXPO_PUBLIC_RTC_SERVER_URL?.trim() || DEFAULT_HOST,
+    []
+  );
 
   useEffect(() => {
     const initializeDeviceInfo = async () => {
       try {
-        const deviceName = Device.deviceName || `${Platform.OS}-${Device.modelName}` || Platform.OS;
+        const deviceName =
+          Device.deviceName || `${Platform.OS}-${Device.modelName}` || Platform.OS;
         setCurrentUser(deviceName);
-        console.log('Device initialized for chat:', deviceName);
       } catch (error) {
         console.error('Error getting device info:', error);
         setCurrentUser(`${Platform.OS}-device`);
@@ -38,16 +43,14 @@ export default function ChatScreen() {
   if (isLoading || !currentUser) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          {/* You can add a loading spinner here */}
-        </View>
+        <View style={styles.loadingContainer} />
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
@@ -55,13 +58,13 @@ export default function ChatScreen() {
         <ChatWindow
           userName={currentUser}
           roomName={roomName}
-          baseUrl={Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000'}
+          baseUrl={baseUrl}
           placeholder="Type a message..."
           emptyStateText="No messages yet. Start the conversation!"
           showTypingIndicator={true}
+          loadHistory={true}
           onMessageReceived={(message) => {
-            console.log('📨 New message received:', message);
-            // Add custom logic: play notification sound, show banner, etc.
+            console.log('New message received:', message);
           }}
         />
       </KeyboardAvoidingView>

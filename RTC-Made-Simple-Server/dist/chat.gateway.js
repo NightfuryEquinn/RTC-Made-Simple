@@ -11,38 +11,49 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
+var ChatGateway_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ChatGateway = void 0;
 const websockets_1 = require("@nestjs/websockets");
+const common_1 = require("@nestjs/common");
 const socket_io_1 = require("socket.io");
 const chat_service_1 = require("./chat.service");
-let ChatGateway = class ChatGateway {
+let ChatGateway = ChatGateway_1 = class ChatGateway {
     constructor(chatService) {
         this.chatService = chatService;
+        this.logger = new common_1.Logger(ChatGateway_1.name);
     }
-    handleConnection(client) {
+    async handleConnection(client) {
         const userName = client.handshake.query.userName;
-        const roomName = client.handshake.query.roomName;
+        const roomName = client.handshake.query.roomName || undefined;
         if (!userName) {
+            this.logger.warn('User name is required. Disconnecting client.');
+            client.emit('error', { message: 'userName is required' });
             client.disconnect();
-            console.log('User name is required. Disconnected ...');
+            return;
+        }
+        const allowed = await this.chatService.canConnect(userName, roomName, client.handshake.query);
+        if (!allowed) {
+            this.logger.warn(`Connection rejected for user ${userName}`);
+            client.emit('error', { message: 'Connection rejected' });
+            client.disconnect();
             return;
         }
         client.data.user = userName;
         client.data.roomName = roomName;
-        client.join(roomName);
-        console.log(`User ${userName} connected to chat room ${roomName}`);
-        // Notify others in the room
-        client.to(roomName).emit('userJoined', {
-            userName: userName,
-            roomName: roomName,
-            timestamp: new Date().toISOString()
-        });
+        if (roomName) {
+            client.join(roomName);
+            client.to(roomName).emit('userJoined', {
+                userName,
+                roomName,
+                timestamp: new Date().toISOString()
+            });
+        }
+        this.logger.log(`User ${userName} connected to chat room ${roomName ?? '(none)'}`);
     }
     handleDisconnect(client) {
         if (client.data.user && client.data.roomName) {
-            console.log(`User ${client.data.user} disconnected from chat room ${client.data.roomName}`);
-            // Notify others in the room
+            this.logger.log(`User ${client.data.user} disconnected from chat room ${client.data.roomName}`);
             client.to(client.data.roomName).emit('userLeft', {
                 userName: client.data.user,
                 roomName: client.data.roomName,
@@ -51,67 +62,98 @@ let ChatGateway = class ChatGateway {
         }
     }
     async handleJoinRoom(data, client) {
-        const target = data.roomName;
+        const target = data?.roomName;
         if (!target) {
-            console.log('Target room name is required.');
-            return;
+            client.emit('error', { message: 'Target room name is required' });
+            return { ok: false, error: 'Target room name is required' };
         }
-        // Leave current room
         if (client.data.roomName && client.data.roomName !== target) {
-            client.leave(client.data.roomName);
-            client.to(client.data.roomName).emit('userLeft', {
+            const previousRoom = client.data.roomName;
+            client.leave(previousRoom);
+            client.to(previousRoom).emit('userLeft', {
                 userName: client.data.user,
-                roomName: client.data.roomName,
+                roomName: previousRoom,
                 timestamp: new Date().toISOString()
             });
         }
-        // Join new room
         client.join(target);
         client.data.roomName = target;
-        console.log(`User ${client.data.user} joined chat room ${target}`);
-        // Notify others in the new room
+        this.logger.log(`User ${client.data.user} joined chat room ${target}`);
         client.to(target).emit('userJoined', {
             userName: client.data.user,
             roomName: target,
             timestamp: new Date().toISOString()
         });
+        return { ok: true, roomName: target };
     }
     async handleSendMessage(data, client) {
-        const messageData = {
-            senderName: client.data.user,
-            receiverName: data.receiverName,
-            message: data.message,
-            roomName: client.data.roomName,
-            metadata: data.metadata,
-            timestamp: new Date().toISOString()
-        };
-        console.log(`Message from ${client.data.user} in room ${client.data.roomName}`);
-        // If receiver is specified, send to specific user, otherwise broadcast to room
-        if (data.receiverName) {
-            client.to(client.data.roomName).emit('newMessage', messageData);
+        if (!client.data.roomName) {
+            client.emit('error', { message: 'Join a room before sending messages' });
+            return { ok: false, error: 'Join a room before sending messages' };
         }
-        else {
-            client.to(client.data.roomName).emit('newMessage', messageData);
+        if (!data?.message?.trim()) {
+            client.emit('error', { message: 'Message is required' });
+            return { ok: false, error: 'Message is required' };
         }
-        // Save message via service
         try {
-            await this.chatService.saveMessage(client.data.user, data.receiverName || null, data.message, client.data.roomName, data.metadata);
+            const saved = await this.chatService.saveMessage(client.data.user, data.receiverName || null, data.message.trim(), client.data.roomName, data.metadata);
+            const messageData = {
+                messageId: saved.messageId,
+                senderName: saved.senderName,
+                receiverName: saved.receiverName,
+                message: saved.message,
+                roomName: saved.roomName,
+                metadata: saved.metadata,
+                timestamp: saved.timestamp,
+                clientMessageId: data.clientMessageId
+            };
+            this.logger.log(`Message ${saved.messageId} from ${client.data.user} in room ${client.data.roomName}`);
+            client.to(client.data.roomName).emit('newMessage', messageData);
+            client.emit('messageAck', messageData);
+            return { ok: true, message: messageData };
         }
         catch (error) {
-            console.error('Error saving message:', error);
+            this.logger.error('Error saving message', error);
+            client.emit('error', { message: 'Failed to send message' });
+            return { ok: false, error: 'Failed to send message' };
+        }
+    }
+    async handleGetMessages(data, client) {
+        const roomName = data?.roomName || client.data.roomName;
+        if (!roomName) {
+            client.emit('error', { message: 'roomName is required' });
+            return { ok: false, error: 'roomName is required' };
+        }
+        try {
+            const messages = await this.chatService.getMessages(roomName, data?.limit);
+            client.emit('messageHistory', {
+                roomName,
+                messages
+            });
+            return { ok: true, messages };
+        }
+        catch (error) {
+            this.logger.error('Error fetching messages', error);
+            client.emit('error', { message: 'Failed to fetch messages' });
+            return { ok: false, error: 'Failed to fetch messages' };
         }
     }
     async handleTyping(data, client) {
-        console.log(`User ${client.data.user} is ${data.isTyping ? 'typing' : 'stopped typing'}`);
+        if (!client.data.roomName) {
+            return;
+        }
         client.to(client.data.roomName).emit('userTyping', {
             userName: client.data.user,
             roomName: client.data.roomName,
-            isTyping: data.isTyping,
+            isTyping: Boolean(data?.isTyping),
             timestamp: new Date().toISOString()
         });
     }
     async handleMessageRead(data, client) {
-        console.log(`Message ${data.messageId} read by ${client.data.user}`);
+        if (!data?.messageId || !client.data.roomName) {
+            return;
+        }
+        this.logger.log(`Message ${data.messageId} read by ${client.data.user}`);
         client.to(client.data.roomName).emit('messageReadReceipt', {
             messageId: data.messageId,
             readBy: client.data.user,
@@ -121,11 +163,14 @@ let ChatGateway = class ChatGateway {
             await this.chatService.markMessageAsRead(data.messageId, client.data.user);
         }
         catch (error) {
-            console.error('Error marking message as read:', error);
+            this.logger.error('Error marking message as read', error);
         }
     }
     async handleDeleteMessage(data, client) {
-        console.log(`Message ${data.messageId} deleted by ${client.data.user}`);
+        if (!data?.messageId || !client.data.roomName) {
+            return;
+        }
+        this.logger.log(`Message ${data.messageId} deleted by ${client.data.user}`);
         client.to(client.data.roomName).emit('messageDeleted', {
             messageId: data.messageId,
             deletedBy: client.data.user,
@@ -136,7 +181,7 @@ let ChatGateway = class ChatGateway {
             await this.chatService.deleteMessage(data.messageId, client.data.user);
         }
         catch (error) {
-            console.error('Error deleting message:', error);
+            this.logger.error('Error deleting message', error);
         }
     }
 };
@@ -162,6 +207,14 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], ChatGateway.prototype, "handleSendMessage", null);
 __decorate([
+    (0, websockets_1.SubscribeMessage)('getMessages'),
+    __param(0, (0, websockets_1.MessageBody)()),
+    __param(1, (0, websockets_1.ConnectedSocket)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, socket_io_1.Socket]),
+    __metadata("design:returntype", Promise)
+], ChatGateway.prototype, "handleGetMessages", null);
+__decorate([
     (0, websockets_1.SubscribeMessage)('typing'),
     __param(0, (0, websockets_1.MessageBody)()),
     __param(1, (0, websockets_1.ConnectedSocket)()),
@@ -185,7 +238,7 @@ __decorate([
     __metadata("design:paramtypes", [Object, socket_io_1.Socket]),
     __metadata("design:returntype", Promise)
 ], ChatGateway.prototype, "handleDeleteMessage", null);
-exports.ChatGateway = ChatGateway = __decorate([
+exports.ChatGateway = ChatGateway = ChatGateway_1 = __decorate([
     (0, websockets_1.WebSocketGateway)({
         cors: true,
         transports: ['websocket'],

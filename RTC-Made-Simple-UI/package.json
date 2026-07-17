@@ -1,11 +1,19 @@
 {
   "name": "@nightfuryequinn/rtc-made-simple-ui",
-  "version": "2.0.1",
-  "description": "React Native video calling components with WebRTC support",
+  "version": "2.1.0",
+  "description": "React Native video calling and chat components with WebRTC support",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "prepublishOnly": "npm run build"
   },
   "repository": {
     "type": "git",
@@ -16,7 +24,8 @@
     "WebSocket",
     "React Native",
     "SocketIO",
-    "VideoCall"
+    "VideoCall",
+    "Chat"
   ],
   "author": "NightfuryEquinn",
   "license": "MIT",
@@ -25,16 +34,41 @@
   },
   "homepage": "https://github.com/NightfuryEquinn/RTC-Made-Simple#readme",
   "peerDependencies": {
-    "react": "18.3.1",
-    "react-native": "0.77.3",
-    "react-native-webrtc": "^124.0.6",
-    "react-native-incall-manager": "^4.2.1",
-    "socket.io": "^4.8.1",
-    "socket.io-client": "^4.8.1",
-    "zustand": "^5.0.5"
+    "react": ">=18.0.0",
+    "react-native": ">=0.74.0",
+    "react-native-incall-manager": ">=4.0.0",
+    "react-native-webrtc": ">=124.0.0",
+    "socket.io-client": "^4.8.0",
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@types/jest": "^29.5.14",
     "@types/react": "~18.3.12",
-    "typescript": "^5.9.2"
+    "jest": "^29.7.0",
+    "react": "18.3.1",
+    "ts-jest": "^29.2.5",
+    "typescript": "^5.9.2",
+    "zustand": "^5.0.5"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts",
+      "tsx"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.(spec|test)\\.(ts|tsx)$",
+    "transform": {
+      "^.+\\.(t|j)sx?$": "ts-jest"
+    },
+    "collectCoverageFrom": [
+      "**/*.(t|j)s?(x)"
+    ],
+    "coverageDirectory": "../coverage",
+    "testEnvironment": "node",
+    "moduleNameMapper": {
+      "^react-native$": "<rootDir>/../__mocks__/react-native.js"
+    }
   }
 }

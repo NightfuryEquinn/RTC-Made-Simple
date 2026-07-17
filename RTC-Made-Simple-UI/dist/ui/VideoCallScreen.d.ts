@@ -10,6 +10,7 @@ interface VideoCallScreenProps {
     mediaConstraints?: Constraints;
     avatarUrl?: string;
     localAvatarUrl?: string;
+    offerTimeoutMs?: number;
 }
 export declare const VideoCallScreen: React.FC<VideoCallScreenProps>;
 export {};

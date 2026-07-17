@@ -1,4 +1,13 @@
-import { ConnectedSocket, MessageBody, OnGatewayConnection, OnGatewayDisconnect, SubscribeMessage, WebSocketGateway, WebSocketServer } from "@nestjs/websockets";
+import {
+  ConnectedSocket,
+  MessageBody,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+  SubscribeMessage,
+  WebSocketGateway,
+  WebSocketServer
+} from "@nestjs/websockets";
+import { Logger } from "@nestjs/common";
 import { Server, Socket } from "socket.io";
 import { ChatService } from "./chat.service";
 
@@ -8,46 +17,64 @@ import { ChatService } from "./chat.service";
   path: '/chat'
 })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  private readonly logger = new Logger(ChatGateway.name);
+
   constructor(
     private readonly chatService: ChatService
   ) {}
 
-  @WebSocketServer() server!: Server
+  @WebSocketServer() server!: Server;
 
-  handleConnection(client: Socket) {
-    const userName = client.handshake.query.userName as string
-    const roomName = client.handshake.query.roomName as string
+  async handleConnection(client: Socket) {
+    const userName = client.handshake.query.userName as string;
+    const roomName = (client.handshake.query.roomName as string) || undefined;
 
     if (!userName) {
-      client.disconnect()
-      console.log('User name is required. Disconnected ...')
-      return
+      this.logger.warn('User name is required. Disconnecting client.');
+      client.emit('error', { message: 'userName is required' });
+      client.disconnect();
+      return;
     }
 
-    client.data.user = userName
-    client.data.roomName = roomName
-    client.join(roomName)
+    const allowed = await this.chatService.canConnect(
+      userName,
+      roomName,
+      client.handshake.query as Record<string, unknown>
+    );
 
-    console.log(`User ${userName} connected to chat room ${roomName}`)
+    if (!allowed) {
+      this.logger.warn(`Connection rejected for user ${userName}`);
+      client.emit('error', { message: 'Connection rejected' });
+      client.disconnect();
+      return;
+    }
 
-    // Notify others in the room
-    client.to(roomName).emit('userJoined', {
-      userName: userName,
-      roomName: roomName,
-      timestamp: new Date().toISOString()
-    })
+    client.data.user = userName;
+    client.data.roomName = roomName;
+
+    if (roomName) {
+      client.join(roomName);
+      client.to(roomName).emit('userJoined', {
+        userName,
+        roomName,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    this.logger.log(`User ${userName} connected to chat room ${roomName ?? '(none)'}`);
   }
 
   handleDisconnect(client: Socket) {
     if (client.data.user && client.data.roomName) {
-      console.log(`User ${client.data.user} disconnected from chat room ${client.data.roomName}`)
-      
-      // Notify others in the room
+      this.logger.log(
+        `User ${client.data.user} disconnected from chat room ${client.data.roomName}`
+      );
+
       client.to(client.data.roomName).emit('userLeft', {
         userName: client.data.user,
         roomName: client.data.roomName,
         timestamp: new Date().toISOString()
-      })
+      });
     }
   }
 
@@ -56,74 +83,113 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { roomName: string },
     @ConnectedSocket() client: Socket
   ) {
-    const target = data.roomName
+    const target = data?.roomName;
     if (!target) {
-      console.log('Target room name is required.')
-      return
+      client.emit('error', { message: 'Target room name is required' });
+      return { ok: false, error: 'Target room name is required' };
     }
 
-    // Leave current room
     if (client.data.roomName && client.data.roomName !== target) {
-      client.leave(client.data.roomName)
-      client.to(client.data.roomName).emit('userLeft', {
+      const previousRoom = client.data.roomName;
+      client.leave(previousRoom);
+      client.to(previousRoom).emit('userLeft', {
         userName: client.data.user,
-        roomName: client.data.roomName,
+        roomName: previousRoom,
         timestamp: new Date().toISOString()
-      })
+      });
     }
 
-    // Join new room
-    client.join(target)
-    client.data.roomName = target
+    client.join(target);
+    client.data.roomName = target;
 
-    console.log(`User ${client.data.user} joined chat room ${target}`)
+    this.logger.log(`User ${client.data.user} joined chat room ${target}`);
 
-    // Notify others in the new room
     client.to(target).emit('userJoined', {
       userName: client.data.user,
       roomName: target,
       timestamp: new Date().toISOString()
-    })
+    });
+
+    return { ok: true, roomName: target };
   }
 
   @SubscribeMessage('sendMessage')
   async handleSendMessage(
-    @MessageBody() data: { 
-      message: string, 
-      receiverName?: string,
-      metadata?: any 
+    @MessageBody() data: {
+      message: string;
+      receiverName?: string;
+      metadata?: any;
+      clientMessageId?: string;
     },
     @ConnectedSocket() client: Socket
   ) {
-    const messageData = {
-      senderName: client.data.user,
-      receiverName: data.receiverName,
-      message: data.message,
-      roomName: client.data.roomName,
-      metadata: data.metadata,
-      timestamp: new Date().toISOString()
+    if (!client.data.roomName) {
+      client.emit('error', { message: 'Join a room before sending messages' });
+      return { ok: false, error: 'Join a room before sending messages' };
     }
 
-    console.log(`Message from ${client.data.user} in room ${client.data.roomName}`)
-
-    // If receiver is specified, send to specific user, otherwise broadcast to room
-    if (data.receiverName) {
-      client.to(client.data.roomName).emit('newMessage', messageData)
-    } else {
-      client.to(client.data.roomName).emit('newMessage', messageData)
+    if (!data?.message?.trim()) {
+      client.emit('error', { message: 'Message is required' });
+      return { ok: false, error: 'Message is required' };
     }
 
-    // Save message via service
     try {
-      await this.chatService.saveMessage(
+      const saved = await this.chatService.saveMessage(
         client.data.user,
         data.receiverName || null,
-        data.message,
+        data.message.trim(),
         client.data.roomName,
         data.metadata
-      )
+      );
+
+      const messageData = {
+        messageId: saved.messageId,
+        senderName: saved.senderName,
+        receiverName: saved.receiverName,
+        message: saved.message,
+        roomName: saved.roomName,
+        metadata: saved.metadata,
+        timestamp: saved.timestamp,
+        clientMessageId: data.clientMessageId
+      };
+
+      this.logger.log(
+        `Message ${saved.messageId} from ${client.data.user} in room ${client.data.roomName}`
+      );
+
+      client.to(client.data.roomName).emit('newMessage', messageData);
+      client.emit('messageAck', messageData);
+
+      return { ok: true, message: messageData };
     } catch (error) {
-      console.error('Error saving message:', error)
+      this.logger.error('Error saving message', error);
+      client.emit('error', { message: 'Failed to send message' });
+      return { ok: false, error: 'Failed to send message' };
+    }
+  }
+
+  @SubscribeMessage('getMessages')
+  async handleGetMessages(
+    @MessageBody() data: { roomName?: string; limit?: number },
+    @ConnectedSocket() client: Socket
+  ) {
+    const roomName = data?.roomName || client.data.roomName;
+    if (!roomName) {
+      client.emit('error', { message: 'roomName is required' });
+      return { ok: false, error: 'roomName is required' };
+    }
+
+    try {
+      const messages = await this.chatService.getMessages(roomName, data?.limit);
+      client.emit('messageHistory', {
+        roomName,
+        messages
+      });
+      return { ok: true, messages };
+    } catch (error) {
+      this.logger.error('Error fetching messages', error);
+      client.emit('error', { message: 'Failed to fetch messages' });
+      return { ok: false, error: 'Failed to fetch messages' };
     }
   }
 
@@ -132,39 +198,42 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { isTyping: boolean },
     @ConnectedSocket() client: Socket
   ) {
-    console.log(`User ${client.data.user} is ${data.isTyping ? 'typing' : 'stopped typing'}`)
+    if (!client.data.roomName) {
+      return;
+    }
 
     client.to(client.data.roomName).emit('userTyping', {
       userName: client.data.user,
       roomName: client.data.roomName,
-      isTyping: data.isTyping,
+      isTyping: Boolean(data?.isTyping),
       timestamp: new Date().toISOString()
-    })
+    });
   }
 
   @SubscribeMessage('messageRead')
   async handleMessageRead(
-    @MessageBody() data: { 
-      messageId: string,
-      senderName: string 
+    @MessageBody() data: {
+      messageId: string;
+      senderName: string;
     },
     @ConnectedSocket() client: Socket
   ) {
-    console.log(`Message ${data.messageId} read by ${client.data.user}`)
+    if (!data?.messageId || !client.data.roomName) {
+      return;
+    }
+
+    this.logger.log(`Message ${data.messageId} read by ${client.data.user}`);
 
     client.to(client.data.roomName).emit('messageReadReceipt', {
       messageId: data.messageId,
       readBy: client.data.user,
       timestamp: new Date().toISOString()
-    })
+    });
 
     try {
-      await this.chatService.markMessageAsRead(
-        data.messageId,
-        client.data.user
-      )
+      await this.chatService.markMessageAsRead(data.messageId, client.data.user);
     } catch (error) {
-      console.error('Error marking message as read:', error)
+      this.logger.error('Error marking message as read', error);
     }
   }
 
@@ -173,19 +242,23 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { messageId: string },
     @ConnectedSocket() client: Socket
   ) {
-    console.log(`Message ${data.messageId} deleted by ${client.data.user}`)
+    if (!data?.messageId || !client.data.roomName) {
+      return;
+    }
+
+    this.logger.log(`Message ${data.messageId} deleted by ${client.data.user}`);
 
     client.to(client.data.roomName).emit('messageDeleted', {
       messageId: data.messageId,
       deletedBy: client.data.user,
       roomName: client.data.roomName,
       timestamp: new Date().toISOString()
-    })
+    });
 
     try {
-      await this.chatService.deleteMessage(data.messageId, client.data.user)
+      await this.chatService.deleteMessage(data.messageId, client.data.user);
     } catch (error) {
-      console.error('Error deleting message:', error)
+      this.logger.error('Error deleting message', error);
     }
   }
 }

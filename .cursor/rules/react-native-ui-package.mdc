@@ -1,0 +1,37 @@
+---
+description: Conventions for the React Native rtc-made-simple-ui library
+globs: RTC-Made-Simple-UI/src/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# React Native UI Package
+
+## Structure
+
+- `hooks/` — socket lifecycle + Zustand stores
+- `ui/` — presentational screens/components
+- `socket.ts` — keyed Socket.IO factories (recreate when user/room/url changes)
+- `types/` — shared client event payloads
+- Re-export public API from `src/index.ts`
+
+## Patterns
+
+```typescript
+// ✅ GOOD — stable callback refs; reconcile optimistic IDs
+callbacksRef.current.onMessageReceived?.(data);
+reconcileMessage(clientMessageId, serverMessage);
+
+// ❌ BAD — put inline consumer callbacks in effect deps (listener churn)
+useEffect(() => { ... }, [onMessageReceived]);
+```
+
+```typescript
+// ✅ GOOD — media cleanup via refs so unmount/remote-end always stops tracks
+localStreamRef.current?.getTracks().forEach((track) => track.stop());
+
+// ❌ BAD — cleanup closes over a stale null localStream state
+```
+
+- Prefer peer-ready / join acknowledgements over hard-coded `setTimeout` races
+- Keep peerDependencies for RN, WebRTC, InCallManager, socket.io-client, zustand
+- Match existing double-quote / TypeScript style in this package

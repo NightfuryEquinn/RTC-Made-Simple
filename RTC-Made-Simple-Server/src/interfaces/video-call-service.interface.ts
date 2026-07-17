@@ -2,6 +2,14 @@ import { CallStatus } from "../dtos/end-call.dto";
 import { ResponseCallDto } from "../dtos/response-call.dto";
 
 export interface VideoCallServiceInterface {
-  createCall(callerName: string, receiverName: string): Promise<ResponseCallDto>,
-  endCall(callerName: string, receiverName: string, status: CallStatus): Promise<any>
+  createCall(
+    callerName: string,
+    receiverName: string,
+    conversationId?: number
+  ): Promise<ResponseCallDto>;
+  endCall(
+    callerName: string,
+    receiverName: string,
+    status: CallStatus
+  ): Promise<any>;
 }

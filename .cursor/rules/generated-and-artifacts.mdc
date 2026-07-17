@@ -1,0 +1,12 @@
+---
+description: Do not hand-edit build outputs, packs, or native vendor trees
+globs: "**/dist/**,**/nightfuryequinn-*.tgz,RTC-Made-Simple-Example/example-mobile/ios/**"
+alwaysApply: false
+---
+
+# Generated Artifacts
+
+- `dist/` is `tsc` output — edit `src/`, then `npm run build`
+- Do not commit or hand-edit `*.tgz`; examples use directory `file:` dependencies
+- Treat committed Expo/iOS native trees as generated where possible — prefer JS/TS and config changes
+- If CI publish fails on version conflicts, bump `package.json` version intentionally rather than republishing the same version

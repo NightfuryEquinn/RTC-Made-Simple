@@ -1,21 +1,25 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/RTC-Made-Simple-Server/node_modules
-/RTC-Made-Simple-UI/node_modules
-/node_modules
-/.pnp
+node_modules/
+.pnp
 .pnp.js
 
 # testing
-/coverage
+coverage/
 
 # next.js
-/.next/
+.next/
 /out/
 
-# production
+# production / build outputs
 /build
+**/dist/
+*.tsbuildinfo
+
+# packaged artifacts
+*.tgz
+*.tar.gz
 
 # misc
 .DS_Store
@@ -34,5 +38,9 @@ yarn-error.log*
 .vercel
 
 # typescript
-*.tsbuildinfo
 next-env.d.ts
+
+# IDE
+.idea/
+.vscode/
+*.swp

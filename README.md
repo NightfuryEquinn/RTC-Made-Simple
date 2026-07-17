@@ -1,70 +1,70 @@
 # RTC-Made-Simple
 
-A complete, production-ready WebRTC video calling and real-time chat solution for React Native and NestJS applications. Built with simplicity and extensibility in mind.
+A WebRTC video calling and real-time chat toolkit for React Native and NestJS. The packages provide signaling, UI hooks/components, and callback hooks so host apps can add auth, persistence, and business logic.
 
-## 🚀 Features
+## Features
 
-- ✅ **WebRTC Video Calling** - High-quality peer-to-peer video calls
-- ✅ **Real-time Chat** - Instant messaging with typing indicators
-- ✅ **Room-based Communication** - Multiple chat rooms and call sessions
-- ✅ **Read Receipts** - Track message read status
-- ✅ **Message Management** - Delete messages, mark as read
-- ✅ **Call Overlay** - Beautiful incoming call UI
-- ✅ **TypeScript Support** - Full type safety
-- ✅ **Customizable** - Extend with your own business logic
-- ✅ **Production Ready** - Battle-tested architecture
+- WebRTC video calling with Socket.IO signaling
+- Real-time chat with typing indicators, read receipts, delete, and history hooks
+- Room-based communication
+- Call overlay and video call screen for React Native
+- TypeScript support
+- Extensible NestJS modules via `forRoot({ callbacks })`
 
-## 📦 Packages
-
-This monorepo contains two main packages that work together:
+## Packages
 
 ### [@nightfuryequinn/rtc-made-simple-server](./RTC-Made-Simple-Server)
-NestJS server module for video calling and chat functionality.
+NestJS server module for video calling and chat signaling.
 
-**Installation:**
 ```bash
 npm install @nightfuryequinn/rtc-made-simple-server
 ```
 
-**Quick Start:**
+Peer dependencies: `@nestjs/common`, `@nestjs/core`, `@nestjs/websockets`, `@nestjs/platform-socket.io`, `socket.io`, `class-validator`, `class-transformer`.
+
 ```typescript
 import { VideoCallModule, ChatModule } from '@nightfuryequinn/rtc-made-simple-server';
 
 @Module({
   imports: [
-    VideoCallModule.forRoot(),
-    ChatModule.forRoot()
+    VideoCallModule.forRoot({
+      callbacks: {
+        canConnect: async (callerName) => Boolean(callerName),
+        onCallCreated: async (caller, receiver, conversationId) => {},
+        onCallEnded: async (caller, receiver, status) => {}
+      }
+    }),
+    ChatModule.forRoot({
+      callbacks: {
+        onMessageSent: async (sender, receiver, message, room, metadata) => {
+          // Return { messageId } to control IDs used by clients
+        },
+        onGetMessages: async (roomName, limit) => []
+      }
+    })
   ]
 })
 export class AppModule {}
 ```
 
-[📖 Full Documentation](./RTC-Made-Simple-Server/README.md)
+[Full server docs](./RTC-Made-Simple-Server/README.md)
 
 ### [@nightfuryequinn/rtc-made-simple-ui](./RTC-Made-Simple-UI)
-React Native components and hooks for video calling and chat interfaces.
+React Native components and hooks for video calling and chat.
 
-**Installation:**
 ```bash
 npm install @nightfuryequinn/rtc-made-simple-ui
-```
-
-**Peer Dependencies:**
-```bash
 npm install socket.io-client react-native-webrtc react-native-incall-manager zustand
 ```
 
-**Quick Start:**
 ```typescript
 import { useVideoSocket, ChatWindow, CallOverlay } from '@nightfuryequinn/rtc-made-simple-ui';
 
-// Video call
 const { initiateCall, acceptCall, declineCall } = useVideoSocket({
   currentUser: 'user123',
   baseUrl: 'http://your-server.com'
 });
 
-// Chat
 <ChatWindow
   userName="user123"
   roomName="general"
@@ -72,220 +72,91 @@ const { initiateCall, acceptCall, declineCall } = useVideoSocket({
 />
 ```
 
-[📖 Full Documentation](./RTC-Made-Simple-UI/README.md)
+[Full UI docs](./RTC-Made-Simple-UI/README.md)
 
-## 🎯 Example Application
+## Example Application
 
-Check out the complete React Native + NestJS example application in the [`RTC-Made-Simple-Example`](./RTC-Made-Simple-Example) directory.
+The [`RTC-Made-Simple-Example`](./RTC-Made-Simple-Example) folder contains:
 
-The example includes:
-- **Backend (NestJS)**: Video call and chat server setup
-- **Mobile (React Native + Expo)**: Complete mobile app with video calling and chat
+- **Backend (NestJS):** ValidationPipe, in-memory chat history, Swagger
+- **Mobile (Expo):** Video call + chat demo
 
-### Running the Example
+### Local development setup
 
-1. **Start the Backend:**
+Build the libraries first (examples depend on the local package directories):
+
+```bash
+cd RTC-Made-Simple-Server && npm install && npm run build
+cd ../RTC-Made-Simple-UI && npm install && npm run build
+```
+
+Start the backend:
+
 ```bash
 cd RTC-Made-Simple-Example/example-backend
 npm install
 npm run dev
 ```
 
-2. **Start the Mobile App:**
+Start the mobile app:
+
 ```bash
 cd RTC-Made-Simple-Example/example-mobile
 npm install
 npm start
 ```
 
-## 🏗️ Architecture
+### Emulator vs physical device
+
+| Environment | Default server URL |
+|-------------|--------------------|
+| iOS simulator | `http://localhost:3000` |
+| Android emulator | `http://10.0.2.2:3000` |
+| Physical device | Set `EXPO_PUBLIC_RTC_SERVER_URL=http://YOUR_LAN_IP:3000` |
+
+Use two devices/emulators with different device names. Enter the other device's displayed name as the call target.
+
+## Event flows
+
+### Chat
+
+1. Client connects to `/chat` with `userName` + `roomName`
+2. `sendMessage` includes optional `clientMessageId`
+3. Server persists via callback, emits `newMessage` to room peers and `messageAck` to sender
+4. Clients reconcile optimistic IDs; `getMessages` / `messageHistory` load history
+5. `messageRead`, `deleteMessage`, and `typing` fan out to the room
+
+### Video call
+
+1. Clients connect to `/call` and stay in a home room named after themselves
+2. Caller joins the receiver room, emits `incomingCall`
+3. Receiver accepts then both open `VideoCallScreen`, join the receiver room, emit `peerReady`
+4. Caller sends WebRTC offer (`newCall`), receiver answers (`callAnswered`), ICE via `ICEcandidate`
+5. Hang up / decline / cancel / disconnect returns peers home and invokes `onCallEnded`
+
+## Security notes
+
+This toolkit is **signaling-only**. It does not ship authentication, authorization, or durable storage.
+
+1. Implement `canConnect` (and preferably token-based handshake auth) before production
+2. Add rate limiting and content moderation for chat
+3. Use TURN servers for reliable NAT traversal
+4. Serve over HTTPS/WSS in production
+5. Treat `callerName` / `userName` query params as untrusted unless verified
+
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Client Applications                      │
-│  ┌──────────────────┐         ┌──────────────────┐         │
-│  │  Video Call UI   │         │    Chat UI       │         │
-│  │  - CallOverlay   │         │  - ChatWindow    │         │
-│  │  - VideoCallScreen│        │  - MessageItem   │         │
-│  └────────┬─────────┘         └────────┬─────────┘         │
-│           │                             │                    │
-│           └──────────┬──────────────────┘                    │
-│                      │                                       │
-│              @nightfuryequinn/                              │
-│           rtc-made-simple-ui                                │
-└──────────────────────┼──────────────────────────────────────┘
-                       │ WebSocket + WebRTC
-                       │
-┌──────────────────────┼──────────────────────────────────────┐
-│              @nightfuryequinn/                              │
-│           rtc-made-simple-server                            │
-│                      │                                       │
-│      ┌───────────────┴────────────────┐                    │
-│      │                                 │                    │
-│  ┌───┴────────────┐        ┌──────────┴─────┐            │
-│  │ VideoCall      │        │  Chat          │             │
-│  │ Gateway        │        │  Gateway       │             │
-│  │ - /call        │        │  - /chat       │             │
-│  │ - WebRTC       │        │  - Messages    │             │
-│  │ - Signaling    │        │  - Typing      │             │
-│  └────────────────┘        └────────────────┘             │
-│                                                              │
-│                    NestJS Server                            │
-└─────────────────────────────────────────────────────────────┘
+Client (rtc-made-simple-ui)
+  useVideoSocket / VideoCallScreen / ChatWindow
+        | Socket.IO
+Server (rtc-made-simple-server)
+  VideoCallGateway (/call)   ChatGateway (/chat)
+  VideoCallService           ChatService
+        | callbacks                  | callbacks
+  Host app persistence / auth / notifications
 ```
 
-## 🛠️ Technology Stack
-
-### Server
-- **NestJS** - Progressive Node.js framework
-- **Socket.IO** - Real-time bidirectional communication
-- **WebRTC** - Peer-to-peer video calling
-- **TypeScript** - Type-safe development
-
-### Client
-- **React Native** - Cross-platform mobile development
-- **Expo** - React Native toolchain
-- **react-native-webrtc** - WebRTC for React Native
-- **Zustand** - State management
-- **TypeScript** - Type-safe development
-
-## 📱 Platform Support
-
-- ✅ iOS
-- ✅ Android
-- ✅ Web (with modifications)
-
-## 🔧 Configuration
-
-### Video Call Configuration
-
-**Server Side:**
-```typescript
-VideoCallModule.forRoot({
-  callbacks: {
-    onCallCreated: async (callerName, receiverName) => {
-      // Save to database, send push notification
-    },
-    onCallEnded: async (callerName, receiverName, status) => {
-      // Update call history
-    }
-  }
-})
-```
-
-**Client Side:**
-```typescript
-<VideoCallScreen
-  iceServers={[
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'turn:your-turn-server.com:3478', username: 'user', credential: 'pass' }
-  ]}
-/>
-```
-
-### Chat Configuration
-
-**Server Side:**
-```typescript
-ChatModule.forRoot({
-  callbacks: {
-    onMessageSent: async (sender, receiver, message, room, metadata) => {
-      // Save to database, moderate content
-    },
-    onMessageRead: async (messageId, readBy) => {
-      // Update read receipts
-    }
-  }
-})
-```
-
-## 🔐 Security Considerations
-
-1. **Authentication**: Implement proper user authentication before allowing connections
-2. **Rate Limiting**: Add rate limiting to prevent spam
-3. **Content Moderation**: Implement message filtering for chat
-4. **TURN Servers**: Use TURN servers for NAT traversal in production
-5. **SSL/TLS**: Always use HTTPS/WSS in production
-
-## 🚨 Troubleshooting
-
-### Common Issues
-
-#### 1. Babel Configuration
-Ensure your `babel.config.js` includes proper presets:
-```js
-module.exports = {
-  presets: ['module:metro-react-native-babel-preset'],
-  plugins: [
-    // Add any required plugins
-  ]
-};
-```
-
-#### 2. Android Permissions
-Add required permissions to `android/app/src/main/AndroidManifest.xml`:
-```xml
-<uses-permission android:name="android.permission.CAMERA" />
-<uses-permission android:name="android.permission.RECORD_AUDIO" />
-<uses-permission android:name="android.permission.INTERNET" />
-<uses-permission android:name="android.permission.WAKE_LOCK" />
-<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-```
-
-#### 3. iOS Permissions
-Add to `ios/YourApp/Info.plist`:
-```xml
-<key>NSCameraUsageDescription</key>
-<string>This app needs access to camera for video calls</string>
-<key>NSMicrophoneUsageDescription</key>
-<string>This app needs access to microphone for video calls</string>
-```
-
-#### 4. Dependency Versions
-Ensure compatible versions:
-```json
-{
-  "socket.io-client": "^4.8.1",
-  "react-native-webrtc": "^124.0.6",
-  "react-native-incall-manager": "^4.2.1",
-  "zustand": "^5.0.8"
-}
-```
-
-#### 5. Android Remote Stream Issues
-If Android devices crash when remote stream is established:
-- Check WebRTC permissions
-- Ensure proper camera/microphone release
-- Update to latest `react-native-webrtc` version
-- Test on physical devices, not just emulators
-
-## 📚 API Documentation
-
-- [Server API Documentation](./RTC-Made-Simple-Server/README.md)
-- [UI Components Documentation](./RTC-Made-Simple-UI/README.md)
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## 📄 License
+## License
 
 MIT
-
-## 🔗 Links
-
-- [GitHub Repository](https://github.com/NightfuryEquinn/RTC-Made-Simple)
-- [Example Application](./RTC-Made-Simple-Example)
-- [Issues & Support](https://github.com/NightfuryEquinn/RTC-Made-Simple/issues)
-
-## 🙏 Acknowledgments
-
-Built with ❤️ using:
-- [NestJS](https://nestjs.com/)
-- [React Native](https://reactnative.dev/)
-- [Socket.IO](https://socket.io/)
-- [WebRTC](https://webrtc.org/)
-
----
-
-**Made with ❤️ by NightfuryEquinn**

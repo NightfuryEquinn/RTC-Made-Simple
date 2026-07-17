@@ -47,7 +47,7 @@ const DEFAULT_ICE_SERVERS = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' }
 ];
 const DEFAULT_MEDIA_CONSTRAINTS = {
     audio: true,
@@ -58,9 +58,8 @@ const DEFAULT_MEDIA_CONSTRAINTS = {
         facingMode: 'user'
     }
 };
-const VideoCallScreen = ({ currentUser, conversationId, receiverName, callerName, onCallEnd, iceServers = DEFAULT_ICE_SERVERS, mediaConstraints = DEFAULT_MEDIA_CONSTRAINTS, avatarUrl, localAvatarUrl }) => {
+const VideoCallScreen = ({ currentUser, conversationId, receiverName, callerName, onCallEnd, iceServers = DEFAULT_ICE_SERVERS, mediaConstraints = DEFAULT_MEDIA_CONSTRAINTS, avatarUrl, localAvatarUrl, offerTimeoutMs = 15000 }) => {
     const [elapsed, setElapsed] = (0, react_1.useState)(0);
-    const intervalRef = (0, react_1.useRef)(null);
     const [isCameraOn, setIsCameraOn] = (0, react_1.useState)(true);
     const [isFrontCamera, setIsFrontCamera] = (0, react_1.useState)(true);
     const [isMicOn, setIsMicOn] = (0, react_1.useState)(true);
@@ -68,85 +67,74 @@ const VideoCallScreen = ({ currentUser, conversationId, receiverName, callerName
     const [remoteStream, setRemoteStream] = (0, react_1.useState)(null);
     const [connectionState, setConnectionState] = (0, react_1.useState)('connecting');
     const peerConnection = (0, react_1.useRef)(null);
+    const localStreamRef = (0, react_1.useRef)(null);
+    const elapsedRef = (0, react_1.useRef)(0);
+    const endedRef = (0, react_1.useRef)(false);
     const isInitialized = (0, react_1.useRef)(false);
     const pendingIceCandidates = (0, react_1.useRef)([]);
     const socketHandlersSet = (0, react_1.useRef)(false);
+    const offerSentRef = (0, react_1.useRef)(false);
+    const intervalRef = (0, react_1.useRef)(null);
+    const offerTimeoutRef = (0, react_1.useRef)(null);
+    const onCallEndRef = (0, react_1.useRef)(onCallEnd);
     const socket = (0, socket_1.getVideoSocket)();
+    const isCaller = currentUser === callerName;
+    (0, react_1.useEffect)(() => {
+        onCallEndRef.current = onCallEnd;
+    }, [onCallEnd]);
     const cleanup = (0, react_1.useCallback)(() => {
         if (intervalRef.current) {
             clearInterval(intervalRef.current);
             intervalRef.current = null;
         }
-        // Close peer connection first
+        if (offerTimeoutRef.current) {
+            clearTimeout(offerTimeoutRef.current);
+            offerTimeoutRef.current = null;
+        }
         if (peerConnection.current) {
             peerConnection.current.close();
             peerConnection.current = null;
         }
-        // Stop media tracks
-        if (localStream) {
-            localStream.getTracks().forEach(track => track.stop());
+        if (localStreamRef.current) {
+            localStreamRef.current.getTracks().forEach((track) => track.stop());
+            localStreamRef.current = null;
         }
         setLocalStream(null);
         setRemoteStream(null);
         pendingIceCandidates.current = [];
         socketHandlersSet.current = false;
         isInitialized.current = false;
-        react_native_incall_manager_1.default.stop();
-    }, [localStream]);
-    const handleHangUp = (0, react_1.useCallback)(() => {
-        if (socket) {
+        offerSentRef.current = false;
+        try {
+            react_native_incall_manager_1.default.stop();
+        }
+        catch {
+            // no-op when InCallManager is unavailable in tests/web
+        }
+    }, []);
+    const finishCall = (0, react_1.useCallback)((shouldEmitEnd) => {
+        if (endedRef.current) {
+            return;
+        }
+        endedRef.current = true;
+        if (shouldEmitEnd && socket) {
             socket.emit('endCall', {
                 callerName,
                 receiverName,
                 conversationId
             });
+        }
+        if (socket) {
             socket.emit('joinCallRoom', { roomName: currentUser });
         }
+        const duration = (0, formatTime_1.formatTime)(elapsedRef.current);
         cleanup();
-        const formattedDuration = (0, formatTime_1.formatTime)(elapsed);
-        onCallEnd(formattedDuration);
-    }, [elapsed, conversationId, receiverName, cleanup, socket, callerName, currentUser, onCallEnd]);
-    const switchCamera = (0, react_1.useCallback)(async () => {
-        if (!localStream)
-            return;
-        try {
-            const videoTrack = localStream.getVideoTracks()[0];
-            if (videoTrack) {
-                await videoTrack.applyConstraints({
-                    facingMode: isFrontCamera ? 'environment' : 'user'
-                });
-                setIsFrontCamera(prev => !prev);
-            }
-        }
-        catch (error) {
-            console.error('Error switching camera:', error);
-        }
-    }, [localStream, isFrontCamera]);
-    const toggleCamera = (0, react_1.useCallback)(() => {
-        if (!localStream)
-            return;
-        setIsCameraOn(prev => {
-            const newState = !prev;
-            localStream.getVideoTracks().forEach(track => {
-                track.enabled = newState;
-            });
-            return newState;
-        });
-    }, [localStream]);
-    const toggleMic = (0, react_1.useCallback)(() => {
-        if (!localStream)
-            return;
-        setIsMicOn(prev => {
-            const newState = !prev;
-            localStream.getAudioTracks().forEach(track => {
-                track.enabled = newState;
-            });
-            return newState;
-        });
-    }, [localStream]);
+        onCallEndRef.current(duration);
+    }, [socket, callerName, receiverName, conversationId, currentUser, cleanup]);
     const processingPendingIceCandidates = (0, react_1.useCallback)(async () => {
-        if (!peerConnection.current?.remoteDescription)
+        if (!peerConnection.current?.remoteDescription) {
             return;
+        }
         const candidates = [...pendingIceCandidates.current];
         pendingIceCandidates.current = [];
         for (const candidate of candidates) {
@@ -158,21 +146,34 @@ const VideoCallScreen = ({ currentUser, conversationId, receiverName, callerName
             }
         }
     }, []);
+    const createOffer = (0, react_1.useCallback)(async () => {
+        if (!peerConnection.current || offerSentRef.current || !socket) {
+            return;
+        }
+        offerSentRef.current = true;
+        if (offerTimeoutRef.current) {
+            clearTimeout(offerTimeoutRef.current);
+            offerTimeoutRef.current = null;
+        }
+        const offer = await peerConnection.current.createOffer({});
+        await peerConnection.current.setLocalDescription(offer);
+        socket.emit('newCall', {
+            receiverName,
+            rtcMessage: offer
+        });
+    }, [socket, receiverName]);
     const createPeerConnection = (0, react_1.useCallback)(() => {
         if (peerConnection.current) {
-            console.log('Closing existing peer connection');
             peerConnection.current.close();
             peerConnection.current = null;
         }
         const pc = new react_native_webrtc_1.RTCPeerConnection({
-            iceServers: iceServers,
+            iceServers
         });
-        // @ts-ignore
+        // @ts-ignore - react-native-webrtc event typings
         pc.addEventListener('track', (event) => {
-            console.log('Track received:', event.streams.length, 'track kind:', event.track?.kind);
             const [stream] = event.streams;
             if (stream) {
-                console.log('Setting remote stream with', stream.getTracks().length, 'tracks');
                 setRemoteStream(stream);
                 setConnectionState('connected');
             }
@@ -180,7 +181,6 @@ const VideoCallScreen = ({ currentUser, conversationId, receiverName, callerName
         // @ts-ignore
         pc.addEventListener('icecandidate', (event) => {
             if (event.candidate && socket) {
-                console.log('Sending ICE candidate');
                 socket.emit('ICEcandidate', {
                     callerName,
                     receiverName,
@@ -191,72 +191,63 @@ const VideoCallScreen = ({ currentUser, conversationId, receiverName, callerName
                     }
                 });
             }
-            else if (!event.candidate) {
-                console.log('ICE gathering completed');
-            }
         });
         // @ts-ignore
         pc.addEventListener('connectionstatechange', () => {
-            const state = pc.connectionState;
-            console.log('Connection state changed:', state);
-            setConnectionState(state);
+            setConnectionState(pc.connectionState);
         });
-        // @ts-ignore
-        pc.addEventListener('iceconnectionstatechange', () => {
-            console.log('ICE connection state:', pc.iceConnectionState);
-        });
-        // @ts-ignore
-        pc.addEventListener('icegatheringstatechange', () => {
-            console.log('ICE gathering state:', pc.iceGatheringState);
-        });
-        console.log('New peer connection created');
         return pc;
     }, [iceServers, socket, callerName, receiverName]);
     const initMedia = (0, react_1.useCallback)(async () => {
-        try {
-            react_native_incall_manager_1.default.start();
-            react_native_incall_manager_1.default.setKeepScreenOn(true);
-            react_native_incall_manager_1.default.setForceSpeakerphoneOn(true);
-            console.log('Requesting media with constraints:', JSON.stringify(mediaConstraints));
-            const stream = await react_native_webrtc_1.mediaDevices.getUserMedia(mediaConstraints);
-            console.log('Got media stream with tracks:', stream.getTracks().map(t => t.kind).join(', '));
-            setLocalStream(stream);
-            return stream;
-        }
-        catch (error) {
-            console.error('Error init media', error);
-            throw error;
-        }
+        react_native_incall_manager_1.default.start();
+        react_native_incall_manager_1.default.setKeepScreenOn(true);
+        react_native_incall_manager_1.default.setForceSpeakerphoneOn(true);
+        const stream = await react_native_webrtc_1.mediaDevices.getUserMedia(mediaConstraints);
+        localStreamRef.current = stream;
+        setLocalStream(stream);
+        return stream;
     }, [mediaConstraints]);
     const setupSocketHandlers = (0, react_1.useCallback)(() => {
-        if (!socket || socketHandlersSet.current)
+        if (!socket || socketHandlersSet.current) {
             return;
+        }
         socketHandlersSet.current = true;
-        console.log('Setting up socket handlers, socket connected:', socket.connected);
         socket.off('newCall');
         socket.off('callAnswered');
         socket.off('ICEcandidate');
         socket.off('callEnded');
+        socket.off('peerReady');
+        socket.off('peerJoined');
+        socket.on('peerReady', async (data) => {
+            if (isCaller && data.userName === receiverName) {
+                try {
+                    await createOffer();
+                }
+                catch (error) {
+                    console.error('Error creating offer after peerReady', error);
+                    setConnectionState('failed');
+                }
+            }
+        });
+        socket.on('peerJoined', async (data) => {
+            if (isCaller && data.userName === receiverName && !offerSentRef.current) {
+                // Receiver joined the room; wait for peerReady for media readiness.
+            }
+        });
         socket.on('newCall', async (data) => {
             try {
-                console.log('RECEIVED INCOMING CALL OFFER from', data.callerName, 'with SDP type:', data.rtcMessage?.type);
                 if (!peerConnection.current) {
-                    console.error('Peer connection not initialized');
                     return;
                 }
-                console.log('Setting remote description (offer)');
                 await peerConnection.current.setRemoteDescription(new react_native_webrtc_1.RTCSessionDescription(data.rtcMessage));
-                console.log('Processing pending ICE candidates');
                 await processingPendingIceCandidates();
-                console.log('Creating answer');
                 const answer = await peerConnection.current.createAnswer();
                 await peerConnection.current.setLocalDescription(answer);
                 socket.emit('callAnswered', {
                     callerName: data.callerName,
-                    receiverName: receiverName,
+                    receiverName,
                     rtcMessage: answer
                 });
-                console.log('Answer sent to', data.callerName);
             }
             catch (error) {
                 console.error('Error handling incoming call', error);
@@ -265,16 +256,11 @@ const VideoCallScreen = ({ currentUser, conversationId, receiverName, callerName
         });
         socket.on('callAnswered', async (data) => {
             try {
-                console.log('Received call answer from', data.callerName);
                 if (!peerConnection.current) {
-                    console.error('Peer connection not initialized');
                     return;
                 }
-                console.log('Setting remote description (answer)');
                 await peerConnection.current.setRemoteDescription(new react_native_webrtc_1.RTCSessionDescription(data.rtcMessage));
-                console.log('Processing pending ICE candidates');
                 await processingPendingIceCandidates();
-                console.log('Call answer processed successfully');
             }
             catch (error) {
                 console.error('Error handling call answer', error);
@@ -283,7 +269,6 @@ const VideoCallScreen = ({ currentUser, conversationId, receiverName, callerName
         });
         socket.on('ICEcandidate', async (data) => {
             try {
-                console.log('Received ICE candidate from', data.sender);
                 const { candidate, id, label } = data.rtcMessage;
                 const iceCandidate = new react_native_webrtc_1.RTCIceCandidate({
                     candidate,
@@ -291,11 +276,9 @@ const VideoCallScreen = ({ currentUser, conversationId, receiverName, callerName
                     sdpMLineIndex: label
                 });
                 if (peerConnection.current?.remoteDescription) {
-                    console.log('Adding ICE candidate immediately');
                     await peerConnection.current.addIceCandidate(iceCandidate);
                 }
                 else {
-                    console.log('Queuing ICE candidate - remote description not set yet');
                     pendingIceCandidates.current.push(iceCandidate);
                 }
             }
@@ -303,157 +286,203 @@ const VideoCallScreen = ({ currentUser, conversationId, receiverName, callerName
                 console.error('Error adding ICE candidate', error);
             }
         });
-        socket.on('callEnded', async () => {
-            console.log('Call ended by remote peer');
-            socket.emit('joinCallRoom', { roomName: currentUser });
-            const formattedDuration = (0, formatTime_1.formatTime)(elapsed);
-            cleanup();
-            onCallEnd(formattedDuration);
+        socket.on('callEnded', () => {
+            finishCall(false);
         });
-        console.log('All socket handlers registered successfully');
-    }, [socket, receiverName, processingPendingIceCandidates, currentUser, elapsed, cleanup, onCallEnd]);
+    }, [
+        socket,
+        receiverName,
+        isCaller,
+        createOffer,
+        processingPendingIceCandidates,
+        finishCall
+    ]);
     const initCall = (0, react_1.useCallback)(async () => {
         try {
             if (isInitialized.current || peerConnection.current) {
-                console.log('Already initialized, skipping');
                 return;
             }
             isInitialized.current = true;
-            console.log('Initializing call...');
-            console.log('Current user:', currentUser, 'Caller:', callerName, 'Receiver:', receiverName);
+            endedRef.current = false;
             setConnectionState('connecting');
-            // Check socket connection
-            if (!socket) {
-                console.error('Socket is not available');
+            if (!socket || !socket.connected) {
                 setConnectionState('failed');
                 return;
             }
-            if (!socket.connected) {
-                console.error('Socket is not connected');
-                setConnectionState('failed');
-                return;
-            }
-            console.log('Socket is connected, ID:', socket.id);
-            // Setup socket handlers FIRST before joining room
             setupSocketHandlers();
-            // Both users must join the receiver's room for WebRTC signaling
-            socket.emit('joinCallRoom', { roomName: receiverName });
-            console.log(`${currentUser} joined call room ${receiverName}`);
-            // Wait a bit to ensure the room join is processed
-            await new Promise(resolve => setTimeout(resolve, 100));
+            await new Promise((resolve) => {
+                socket.emit('joinCallRoom', { roomName: receiverName }, () => resolve());
+            });
             peerConnection.current = createPeerConnection();
-            console.log('Getting user media...');
             const stream = await initMedia();
-            console.log('Adding tracks to peer connection:', stream.getTracks().length);
-            stream.getTracks().forEach(track => {
-                console.log('Adding track:', track.kind, 'enabled:', track.enabled);
+            stream.getTracks().forEach((track) => {
                 peerConnection.current?.addTrack(track, stream);
             });
-            if (currentUser === callerName) {
-                // Caller waits a bit longer to ensure receiver is ready
-                console.log('Waiting for receiver to be ready...');
-                await new Promise(resolve => setTimeout(resolve, 500));
-                console.log('Creating offer as caller');
-                const offer = await peerConnection.current?.createOffer();
-                await peerConnection.current?.setLocalDescription(offer);
-                console.log('Sending offer to receiver in room:', receiverName);
-                socket?.emit('newCall', {
-                    receiverName,
-                    rtcMessage: offer
-                });
-                console.log('Offer sent to', receiverName);
-            }
-            else {
-                console.log('Ready as receiver, waiting for offer in room:', receiverName);
+            socket.emit('peerReady', {
+                roomName: receiverName,
+                callerName,
+                receiverName
+            });
+            if (isCaller) {
+                offerTimeoutRef.current = setTimeout(async () => {
+                    if (!offerSentRef.current) {
+                        try {
+                            await createOffer();
+                        }
+                        catch (error) {
+                            console.error('Fallback offer failed', error);
+                            setConnectionState('failed');
+                        }
+                    }
+                }, Math.min(offerTimeoutMs, 2000));
             }
         }
         catch (error) {
             console.error('Error init call', error);
             setConnectionState('failed');
         }
-    }, [currentUser, callerName, receiverName, socket, createPeerConnection, initMedia, setupSocketHandlers]);
+    }, [
+        socket,
+        receiverName,
+        callerName,
+        isCaller,
+        setupSocketHandlers,
+        createPeerConnection,
+        initMedia,
+        createOffer,
+        offerTimeoutMs
+    ]);
     (0, react_1.useEffect)(() => {
-        intervalRef.current = window.setInterval(() => {
-            setElapsed(prev => prev + 1);
+        intervalRef.current = setInterval(() => {
+            setElapsed((prev) => {
+                const next = prev + 1;
+                elapsedRef.current = next;
+                return next;
+            });
         }, 1000);
         return () => {
-            if (intervalRef.current !== null)
+            if (intervalRef.current) {
                 clearInterval(intervalRef.current);
+            }
         };
     }, []);
-    (0, react_1.useEffect)(() => {
-        if (remoteStream) {
-            console.log('Remote stream updated:', {
-                id: remoteStream.id,
-                active: remoteStream.active,
-                tracks: remoteStream.getTracks().map(t => ({
-                    kind: t.kind,
-                    enabled: t.enabled,
-                    readyState: t.readyState,
-                    id: t.id
-                }))
-            });
-        }
-        else {
-            console.log('Remote stream is null');
-        }
-    }, [remoteStream]);
     (0, react_1.useEffect)(() => {
         if (socket) {
             initCall();
         }
         return () => {
-            cleanup();
+            if (!endedRef.current) {
+                cleanup();
+            }
             if (socket) {
                 socket.off('newCall');
                 socket.off('callAnswered');
                 socket.off('ICEcandidate');
                 socket.off('callEnded');
+                socket.off('peerReady');
+                socket.off('peerJoined');
             }
         };
-    }, [socket]);
-    const renderVideoStream = (0, react_1.useCallback)((stream, style, shouldMirror = false) => {
-        if (stream) {
-            return (<react_native_webrtc_1.RTCView streamURL={stream.toURL()} style={style} objectFit="cover" mirror={shouldMirror}/>);
-        }
-        return null;
+        // Intentionally mount-once for call lifetime
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+    const handleHangUp = (0, react_1.useCallback)(() => {
+        finishCall(true);
+    }, [finishCall]);
+    const switchCamera = (0, react_1.useCallback)(async () => {
+        if (!localStreamRef.current) {
+            return;
+        }
+        try {
+            const videoTrack = localStreamRef.current.getVideoTracks()[0];
+            if (videoTrack?._switchCamera) {
+                videoTrack._switchCamera();
+                setIsFrontCamera((prev) => !prev);
+                return;
+            }
+            if (videoTrack?.applyConstraints) {
+                await videoTrack.applyConstraints({
+                    facingMode: isFrontCamera ? 'environment' : 'user'
+                });
+                setIsFrontCamera((prev) => !prev);
+            }
+        }
+        catch (error) {
+            console.error('Error switching camera:', error);
+        }
+    }, [isFrontCamera]);
+    const toggleCamera = (0, react_1.useCallback)(() => {
+        if (!localStreamRef.current) {
+            return;
+        }
+        setIsCameraOn((prev) => {
+            const next = !prev;
+            localStreamRef.current?.getVideoTracks().forEach((track) => {
+                track.enabled = next;
+            });
+            return next;
+        });
+    }, []);
+    const toggleMic = (0, react_1.useCallback)(() => {
+        if (!localStreamRef.current) {
+            return;
+        }
+        setIsMicOn((prev) => {
+            const next = !prev;
+            localStreamRef.current?.getAudioTracks().forEach((track) => {
+                track.enabled = next;
+            });
+            return next;
+        });
+    }, []);
+    const renderVideoStream = (stream, style, shouldMirror = false) => {
+        if (!stream) {
+            return null;
+        }
+        return (<react_native_webrtc_1.RTCView streamURL={stream.toURL()} style={style} objectFit="cover" mirror={shouldMirror}/>);
+    };
     return (<react_native_1.SafeAreaView style={styles.container}>
       <react_native_1.View style={styles.topBar}>
         <react_native_1.View style={styles.userInfo}>
-          {avatarUrl && (<react_native_1.Image source={{ uri: avatarUrl }} style={styles.avatar}/>)}
-          <react_native_1.Text style={styles.username}>{currentUser === callerName ? receiverName : callerName}</react_native_1.Text>
+          {avatarUrl && <react_native_1.Image source={{ uri: avatarUrl }} style={styles.avatar}/>}
+          <react_native_1.Text style={styles.username}>
+            {currentUser === callerName ? receiverName : callerName}
+          </react_native_1.Text>
         </react_native_1.View>
         <react_native_1.View style={styles.timerContainer}>
-          <react_native_1.View style={[styles.redDot, {
-                backgroundColor: connectionState === 'connected' ? '#00ff00' :
-                    connectionState === 'connecting' ? '#ffff00' : '#ff0000'
-            }]}/>
+          <react_native_1.View style={[
+            styles.redDot,
+            {
+                backgroundColor: connectionState === 'connected'
+                    ? '#00ff00'
+                    : connectionState === 'connecting'
+                        ? '#ffff00'
+                        : '#ff0000'
+            }
+        ]}/>
           <react_native_1.Text style={styles.timerText}>{(0, formatTime_1.formatTime)(elapsed)}</react_native_1.Text>
         </react_native_1.View>
       </react_native_1.View>
 
       <react_native_1.View style={styles.mainVideoContainer}>
-        {remoteStream ? (renderVideoStream(remoteStream, styles.mainVideo)) : (avatarUrl && <react_native_1.Image source={{ uri: avatarUrl }} style={styles.mainVideo} resizeMode="cover"/>)}
+        {remoteStream
+            ? renderVideoStream(remoteStream, styles.mainVideo)
+            : avatarUrl && (<react_native_1.Image source={{ uri: avatarUrl }} style={styles.mainVideo} resizeMode="cover"/>)}
 
         <react_native_1.View style={styles.selfViewContainer}>
-          {localStream && isCameraOn ? (renderVideoStream(localStream, styles.selfView, isFrontCamera)) : (localAvatarUrl && <react_native_1.Image source={{ uri: localAvatarUrl }} style={styles.selfView} resizeMode="cover"/>)}
+          {localStream && isCameraOn
+            ? renderVideoStream(localStream, styles.selfView, isFrontCamera)
+            : localAvatarUrl && (<react_native_1.Image source={{ uri: localAvatarUrl }} style={styles.selfView} resizeMode="cover"/>)}
         </react_native_1.View>
       </react_native_1.View>
 
       <react_native_1.View style={styles.controlsContainer}>
-        <react_native_1.TouchableOpacity style={[
-            styles.controlButton,
-            isCameraOn && { backgroundColor: "#007FFF" },
-        ]} onPress={toggleCamera}>
-          <react_native_1.Text style={styles.controlText}>{isCameraOn ? "Camera On" : "Camera Off"}</react_native_1.Text>
+        <react_native_1.TouchableOpacity style={[styles.controlButton, isCameraOn && { backgroundColor: '#007FFF' }]} onPress={toggleCamera}>
+          <react_native_1.Text style={styles.controlText}>{isCameraOn ? 'Camera On' : 'Camera Off'}</react_native_1.Text>
         </react_native_1.TouchableOpacity>
 
-        <react_native_1.TouchableOpacity style={[
-            styles.controlButton,
-            isMicOn && { backgroundColor: "#007FFF" },
-        ]} onPress={toggleMic}>
-          <react_native_1.Text style={styles.controlText}>{isMicOn ? "Mic On" : "Mic Off"}</react_native_1.Text>
+        <react_native_1.TouchableOpacity style={[styles.controlButton, isMicOn && { backgroundColor: '#007FFF' }]} onPress={toggleMic}>
+          <react_native_1.Text style={styles.controlText}>{isMicOn ? 'Mic On' : 'Mic Off'}</react_native_1.Text>
         </react_native_1.TouchableOpacity>
 
         <react_native_1.TouchableOpacity style={styles.controlButton} onPress={switchCamera}>
@@ -470,95 +499,95 @@ exports.VideoCallScreen = VideoCallScreen;
 const styles = react_native_1.StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: "#444",
+        backgroundColor: '#444'
     },
     topBar: {
-        backgroundColor: "#007aff",
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
+        backgroundColor: '#007aff',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
         paddingHorizontal: 16,
         paddingTop: react_native_1.Platform.OS === 'android' ? 60 : 16,
-        paddingBottom: 16,
+        paddingBottom: 16
     },
     userInfo: {
-        flexDirection: "row",
-        alignItems: "center",
+        flexDirection: 'row',
+        alignItems: 'center'
     },
     avatar: {
         width: 28,
         height: 28,
         borderRadius: 14,
         marginRight: 8,
-        resizeMode: "cover",
+        resizeMode: 'cover'
     },
     username: {
-        color: "#fff",
-        fontWeight: "700",
+        color: '#fff',
+        fontWeight: '700'
     },
     timerContainer: {
-        flexDirection: "row",
-        alignItems: "center",
+        flexDirection: 'row',
+        alignItems: 'center'
     },
     redDot: {
         width: 8,
         height: 8,
         borderRadius: 4,
-        backgroundColor: "#ff3b30",
-        marginRight: 6,
+        backgroundColor: '#ff3b30',
+        marginRight: 6
     },
     timerText: {
-        color: "#fff",
-        fontWeight: "500",
+        color: '#fff',
+        fontWeight: '500'
     },
     mainVideoContainer: {
         flex: 1,
-        justifyContent: "center",
-        alignItems: "center",
+        justifyContent: 'center',
+        alignItems: 'center'
     },
     mainVideo: {
-        width: "100%",
-        height: "100%",
-        position: "absolute",
+        width: '100%',
+        height: '100%',
+        position: 'absolute',
         top: 0,
         left: 0,
         right: 0,
-        bottom: 0,
+        bottom: 0
     },
     selfViewContainer: {
-        position: "absolute",
+        position: 'absolute',
         top: 20,
         right: 20,
         width: 100,
         height: 140,
         borderRadius: 16,
-        overflow: "hidden",
-        backgroundColor: "#222",
+        overflow: 'hidden',
+        backgroundColor: '#222'
     },
     selfView: {
-        width: "100%",
-        height: "100%",
-        borderRadius: 16,
+        width: '100%',
+        height: '100%',
+        borderRadius: 16
     },
     controlsContainer: {
-        position: "absolute",
+        position: 'absolute',
         bottom: 20,
         left: 0,
         right: 0,
-        flexDirection: "row",
-        justifyContent: "center",
-        alignItems: "center",
-        gap: 10,
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 10
     },
     controlButton: {
-        backgroundColor: "#ff3b30",
+        backgroundColor: '#ff3b30',
         paddingHorizontal: 20,
         paddingVertical: 10,
-        borderRadius: 8,
+        borderRadius: 8
     },
     controlText: {
-        color: "#fff",
-        fontWeight: "bold",
-    },
+        color: '#fff',
+        fontWeight: 'bold'
+    }
 });
 //# sourceMappingURL=VideoCallScreen.js.map

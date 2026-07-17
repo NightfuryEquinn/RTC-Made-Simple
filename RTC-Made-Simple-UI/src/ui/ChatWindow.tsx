@@ -1,16 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { 
-  View, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  FlatList, 
-  StyleSheet,
+import {
+  FlatList,
   KeyboardAvoidingView,
-  Platform 
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { useChatSocket } from '../hooks/useChatSocket';
 import { ChatMessage } from '../types/chat.types';
+import { MessageItem } from './MessageItem';
 
 interface ChatWindowProps {
   userName: string;
@@ -20,6 +21,8 @@ interface ChatWindowProps {
   placeholder?: string;
   emptyStateText?: string;
   showTypingIndicator?: boolean;
+  maxMessages?: number;
+  loadHistory?: boolean;
 }
 
 export const ChatWindow: React.FC<ChatWindowProps> = ({
@@ -29,32 +32,53 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   onMessageReceived,
   placeholder = 'Type a message...',
   emptyStateText = 'No messages yet',
-  showTypingIndicator = true
+  showTypingIndicator = true,
+  maxMessages,
+  loadHistory = true
 }) => {
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef<FlatList>(null);
-  
-  const { 
-    messages, 
-    typingUsers, 
-    sendMessage, 
+  const markedReadRef = useRef<Set<string>>(new Set());
+
+  const {
+    messages,
+    typingUsers,
+    isConnected,
+    connectionError,
+    sendMessage,
     setTyping,
-    markMessageAsRead 
+    markMessageAsRead,
+    deleteMessage
   } = useChatSocket({
     userName,
     roomName,
     baseUrl,
-    onMessageReceived
+    onMessageReceived,
+    maxMessages,
+    loadHistory
   });
 
   useEffect(() => {
-    // Auto-scroll to bottom when new messages arrive
     if (messages.length > 0) {
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
     }
   }, [messages]);
+
+  useEffect(() => {
+    messages.forEach((message) => {
+      if (
+        message.messageId &&
+        message.senderName !== userName &&
+        !message.isRead &&
+        !markedReadRef.current.has(message.messageId)
+      ) {
+        markedReadRef.current.add(message.messageId);
+        markMessageAsRead(message.messageId, message.senderName);
+      }
+    });
+  }, [messages, userName, markMessageAsRead]);
 
   const handleSendMessage = () => {
     if (inputText.trim()) {
@@ -69,44 +93,27 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     setTyping(text.length > 0);
   };
 
-  const renderMessage = ({ item }: { item: ChatMessage }) => {
-    const isOwnMessage = item.senderName === userName;
-    
-    return (
-      <View style={[
-        styles.messageContainer,
-        isOwnMessage ? styles.ownMessage : styles.otherMessage
-      ]}>
-        {!isOwnMessage && (
-          <Text style={styles.senderName}>{item.senderName}</Text>
-        )}
-        <View style={[
-          styles.messageBubble,
-          isOwnMessage ? styles.ownBubble : styles.otherBubble
-        ]}>
-          <Text style={[
-            styles.messageText,
-            isOwnMessage ? styles.ownMessageText : styles.otherMessageText
-          ]}>
-            {item.message}
-          </Text>
-          <Text style={styles.timestamp}>
-            {new Date(item.timestamp).toLocaleTimeString([], { 
-              hour: '2-digit', 
-              minute: '2-digit' 
-            })}
-          </Text>
-        </View>
-      </View>
-    );
-  };
+  const renderMessage = ({ item }: { item: ChatMessage }) => (
+    <MessageItem
+      message={item}
+      isOwnMessage={item.senderName === userName}
+      onLongPress={(message) => {
+        if (message.messageId && message.senderName === userName) {
+          deleteMessage(message.messageId);
+        }
+      }}
+    />
+  );
 
   const renderTypingIndicator = () => {
-    if (!showTypingIndicator || typingUsers.length === 0) return null;
+    if (!showTypingIndicator || typingUsers.length === 0) {
+      return null;
+    }
 
-    const typingText = typingUsers.length === 1
-      ? `${typingUsers[0]} is typing...`
-      : `${typingUsers.length} people are typing...`;
+    const typingText =
+      typingUsers.length === 1
+        ? `${typingUsers[0]} is typing...`
+        : `${typingUsers.length} people are typing...`;
 
     return (
       <View style={styles.typingIndicator}>
@@ -116,20 +123,29 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   };
 
   return (
-    <KeyboardAvoidingView 
+    <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
       <View style={styles.header}>
         <Text style={styles.headerText}>{roomName}</Text>
+        <Text style={styles.connectionText}>
+          {connectionError
+            ? connectionError
+            : isConnected
+              ? 'Connected'
+              : 'Connecting...'}
+        </Text>
       </View>
 
       <FlatList
         ref={flatListRef}
         data={messages}
         renderItem={renderMessage}
-        keyExtractor={(item, index) => item.messageId || `message-${index}`}
+        keyExtractor={(item, index) =>
+          item.messageId || item.clientMessageId || `message-${index}`
+        }
         contentContainerStyle={styles.messagesList}
         ListEmptyComponent={
           <View style={styles.emptyState}>
@@ -149,7 +165,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
           multiline
           maxLength={1000}
         />
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
           onPress={handleSendMessage}
           disabled={!inputText.trim()}
@@ -164,79 +180,38 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f5f5f5'
   },
   header: {
     backgroundColor: '#007AFF',
     padding: 16,
     alignItems: 'center',
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: '#e0e0e0'
   },
   headerText: {
     color: '#fff',
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: 'bold'
+  },
+  connectionText: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 12,
+    marginTop: 4
   },
   messagesList: {
     padding: 16,
-    flexGrow: 1,
-  },
-  messageContainer: {
-    marginBottom: 16,
-    maxWidth: '80%',
-  },
-  ownMessage: {
-    alignSelf: 'flex-end',
-    alignItems: 'flex-end',
-  },
-  otherMessage: {
-    alignSelf: 'flex-start',
-    alignItems: 'flex-start',
-  },
-  senderName: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
-    marginLeft: 8,
-  },
-  messageBubble: {
-    borderRadius: 16,
-    padding: 12,
-    maxWidth: '100%',
-  },
-  ownBubble: {
-    backgroundColor: '#007AFF',
-  },
-  otherBubble: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  messageText: {
-    fontSize: 16,
-    marginBottom: 4,
-  },
-  ownMessageText: {
-    color: '#fff',
-  },
-  otherMessageText: {
-    color: '#333',
-  },
-  timestamp: {
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.7)',
-    alignSelf: 'flex-end',
+    flexGrow: 1
   },
   typingIndicator: {
     padding: 8,
     paddingHorizontal: 16,
-    backgroundColor: '#f9f9f9',
+    backgroundColor: '#f9f9f9'
   },
   typingText: {
     fontSize: 12,
     color: '#666',
-    fontStyle: 'italic',
+    fontStyle: 'italic'
   },
   inputContainer: {
     flexDirection: 'row',
@@ -244,7 +219,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderTopWidth: 1,
     borderTopColor: '#e0e0e0',
-    alignItems: 'flex-end',
+    alignItems: 'flex-end'
   },
   input: {
     flex: 1,
@@ -254,7 +229,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginRight: 8,
     maxHeight: 100,
-    fontSize: 16,
+    fontSize: 16
   },
   sendButton: {
     backgroundColor: '#007AFF',
@@ -262,24 +237,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 10,
     justifyContent: 'center',
-    alignItems: 'center',
+    alignItems: 'center'
   },
   sendButtonDisabled: {
-    backgroundColor: '#ccc',
+    backgroundColor: '#ccc'
   },
   sendButtonText: {
     color: '#fff',
     fontWeight: 'bold',
-    fontSize: 16,
+    fontSize: 16
   },
   emptyState: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 40,
+    paddingVertical: 40
   },
   emptyStateText: {
     fontSize: 16,
-    color: '#999',
-  },
+    color: '#999'
+  }
 });

@@ -1,32 +1,39 @@
-import { useCallback, useEffect, useRef } from "react"
-import { createChatSocket, getChatSocket } from "../socket"
-import { 
-  ChatMessage, 
-  UserJoinedData, 
-  UserLeftData, 
-  UserTypingData, 
+import { useCallback, useEffect, useRef } from "react";
+import { createChatSocket, getChatSocket } from "../socket";
+import {
+  ChatMessage,
+  MessageDeletedData,
+  MessageHistoryData,
   MessageReadReceiptData,
-  MessageDeletedData 
-} from "../types/chat.types"
-import { useChatStore } from "./useChatStore"
+  UserJoinedData,
+  UserLeftData,
+  UserTypingData
+} from "../types/chat.types";
+import { useChatStore } from "./useChatStore";
 
 interface UseChatSocketProps {
-  userName: string
-  roomName: string
-  baseUrl: string
-  onMessageReceived?: (message: ChatMessage) => void
-  onUserJoined?: (data: UserJoinedData) => void
-  onUserLeft?: (data: UserLeftData) => void
-  onUserTyping?: (data: UserTypingData) => void
-  onMessageRead?: (data: MessageReadReceiptData) => void
-  onMessageDeleted?: (data: MessageDeletedData) => void
-  autoConnect?: boolean
+  userName: string;
+  roomName: string;
+  baseUrl: string;
+  maxMessages?: number;
+  loadHistory?: boolean;
+  historyLimit?: number;
+  onMessageReceived?: (message: ChatMessage) => void;
+  onUserJoined?: (data: UserJoinedData) => void;
+  onUserLeft?: (data: UserLeftData) => void;
+  onUserTyping?: (data: UserTypingData) => void;
+  onMessageRead?: (data: MessageReadReceiptData) => void;
+  onMessageDeleted?: (data: MessageDeletedData) => void;
+  autoConnect?: boolean;
 }
 
 export const useChatSocket = ({
   userName,
   roomName,
   baseUrl,
+  maxMessages,
+  loadHistory = true,
+  historyLimit = 50,
   onMessageReceived,
   onUserJoined,
   onUserLeft,
@@ -35,198 +42,336 @@ export const useChatSocket = ({
   onMessageDeleted,
   autoConnect = true
 }: UseChatSocketProps) => {
-  const { 
-    messages,
-    typingUsers,
-    connectedUsers,
-    addMessage,
-    updateMessage,
-    removeMessage,
-    setTypingUser,
-    addConnectedUser,
-    removeConnectedUser,
-    setCurrentRoom,
-    setCurrentUser
-  } = useChatStore()
+  const messages = useChatStore((state) => state.messages);
+  const typingUsers = useChatStore((state) => state.typingUsers);
+  const connectedUsers = useChatStore((state) => state.connectedUsers);
+  const connectionError = useChatStore((state) => state.connectionError);
+  const isConnected = useChatStore((state) => state.isConnected);
 
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const addMessage = useChatStore((state) => state.addMessage);
+  const reconcileMessage = useChatStore((state) => state.reconcileMessage);
+  const setMessages = useChatStore((state) => state.setMessages);
+  const updateMessage = useChatStore((state) => state.updateMessage);
+  const removeMessage = useChatStore((state) => state.removeMessage);
+  const setTypingUser = useChatStore((state) => state.setTypingUser);
+  const addConnectedUser = useChatStore((state) => state.addConnectedUser);
+  const removeConnectedUser = useChatStore((state) => state.removeConnectedUser);
+  const setCurrentRoom = useChatStore((state) => state.setCurrentRoom);
+  const setCurrentUser = useChatStore((state) => state.setCurrentUser);
+  const setMaxMessages = useChatStore((state) => state.setMaxMessages);
+  const setConnectionError = useChatStore((state) => state.setConnectionError);
+  const setIsConnected = useChatStore((state) => state.setIsConnected);
+  const clearMessages = useChatStore((state) => state.clearMessages);
 
-  const ensureSocket = useCallback(() => {
-    let socket = getChatSocket()
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previousRoomRef = useRef<string | null>(null);
 
-    if (!socket && userName && roomName) {
-      socket = createChatSocket(userName, roomName, baseUrl)
-    }
-
-    if (socket?.disconnected) socket.connect()
-    return socket
-  }, [userName, roomName, baseUrl])
-
-  useEffect(() => {
-    if (!userName || !roomName || !autoConnect) return
-
-    setCurrentUser(userName)
-    setCurrentRoom(roomName)
-
-    const socket = createChatSocket(userName, roomName, baseUrl)
-    socket.connect()
-
-    // Handle new messages
-    const handleNewMessage = (data: ChatMessage) => {
-      console.log('New message received:', data)
-      addMessage(data)
-      onMessageReceived?.(data)
-    }
-
-    // Handle user joined
-    const handleUserJoined = (data: UserJoinedData) => {
-      console.log('User joined:', data)
-      addConnectedUser(data.userName)
-      onUserJoined?.(data)
-    }
-
-    // Handle user left
-    const handleUserLeft = (data: UserLeftData) => {
-      console.log('User left:', data)
-      removeConnectedUser(data.userName)
-      onUserLeft?.(data)
-    }
-
-    // Handle user typing
-    const handleUserTyping = (data: UserTypingData) => {
-      console.log('User typing:', data)
-      setTypingUser(data.userName, data.isTyping)
-      onUserTyping?.(data)
-    }
-
-    // Handle message read receipt
-    const handleMessageReadReceipt = (data: MessageReadReceiptData) => {
-      console.log('Message read:', data)
-      updateMessage(data.messageId, { isRead: true })
-      onMessageRead?.(data)
-    }
-
-    // Handle message deleted
-    const handleMessageDeleted = (data: MessageDeletedData) => {
-      console.log('Message deleted:', data)
-      removeMessage(data.messageId)
-      onMessageDeleted?.(data)
-    }
-
-    socket.on('newMessage', handleNewMessage)
-    socket.on('userJoined', handleUserJoined)
-    socket.on('userLeft', handleUserLeft)
-    socket.on('userTyping', handleUserTyping)
-    socket.on('messageReadReceipt', handleMessageReadReceipt)
-    socket.on('messageDeleted', handleMessageDeleted)
-
-    return () => {
-      socket.off('newMessage', handleNewMessage)
-      socket.off('userJoined', handleUserJoined)
-      socket.off('userLeft', handleUserLeft)
-      socket.off('userTyping', handleUserTyping)
-      socket.off('messageReadReceipt', handleMessageReadReceipt)
-      socket.off('messageDeleted', handleMessageDeleted)
-    }
-  }, [
-    userName, 
-    roomName, 
-    baseUrl, 
-    autoConnect,
-    onMessageReceived, 
-    onUserJoined, 
-    onUserLeft, 
+  const callbacksRef = useRef({
+    onMessageReceived,
+    onUserJoined,
+    onUserLeft,
     onUserTyping,
     onMessageRead,
-    onMessageDeleted,
+    onMessageDeleted
+  });
+
+  useEffect(() => {
+    callbacksRef.current = {
+      onMessageReceived,
+      onUserJoined,
+      onUserLeft,
+      onUserTyping,
+      onMessageRead,
+      onMessageDeleted
+    };
+  }, [
+    onMessageReceived,
+    onUserJoined,
+    onUserLeft,
+    onUserTyping,
+    onMessageRead,
+    onMessageDeleted
+  ]);
+
+  const ensureSocket = useCallback(() => {
+    let socket = getChatSocket();
+
+    if (!socket && userName && roomName) {
+      socket = createChatSocket(userName, roomName, baseUrl);
+    }
+
+    if (socket && !socket.connected) {
+      socket.connect();
+    }
+
+    return socket;
+  }, [userName, roomName, baseUrl]);
+
+  useEffect(() => {
+    if (typeof maxMessages === 'number') {
+      setMaxMessages(maxMessages);
+    }
+  }, [maxMessages, setMaxMessages]);
+
+  useEffect(() => {
+    if (!userName || !roomName || !autoConnect) {
+      return;
+    }
+
+    setCurrentUser(userName);
+    setCurrentRoom(roomName);
+
+    if (previousRoomRef.current && previousRoomRef.current !== roomName) {
+      clearMessages();
+    }
+    previousRoomRef.current = roomName;
+
+    const socket = createChatSocket(userName, roomName, baseUrl);
+    socket.connect();
+
+    const handleConnect = () => {
+      setIsConnected(true);
+      setConnectionError(null);
+      socket.emit('joinRoom', { roomName }, () => {
+        if (loadHistory) {
+          socket.emit('getMessages', { roomName, limit: historyLimit });
+        }
+      });
+    };
+
+    const handleDisconnect = () => {
+      setIsConnected(false);
+    };
+
+    const handleConnectError = (error: Error) => {
+      setIsConnected(false);
+      setConnectionError(error.message || 'Connection failed');
+    };
+
+    const handleNewMessage = (data: ChatMessage) => {
+      addMessage(data);
+      callbacksRef.current.onMessageReceived?.(data);
+    };
+
+    const handleMessageAck = (data: ChatMessage & { clientMessageId?: string }) => {
+      if (data.clientMessageId) {
+        reconcileMessage(data.clientMessageId, data);
+      } else {
+        addMessage(data);
+      }
+    };
+
+    const handleMessageHistory = (data: MessageHistoryData) => {
+      setMessages(data.messages || []);
+    };
+
+    const handleUserJoined = (data: UserJoinedData) => {
+      addConnectedUser(data.userName);
+      callbacksRef.current.onUserJoined?.(data);
+    };
+
+    const handleUserLeft = (data: UserLeftData) => {
+      removeConnectedUser(data.userName);
+      callbacksRef.current.onUserLeft?.(data);
+    };
+
+    const handleUserTyping = (data: UserTypingData) => {
+      setTypingUser(data.userName, data.isTyping);
+      callbacksRef.current.onUserTyping?.(data);
+    };
+
+    const handleMessageReadReceipt = (data: MessageReadReceiptData) => {
+      updateMessage(data.messageId, { isRead: true });
+      callbacksRef.current.onMessageRead?.(data);
+    };
+
+    const handleMessageDeleted = (data: MessageDeletedData) => {
+      removeMessage(data.messageId);
+      callbacksRef.current.onMessageDeleted?.(data);
+    };
+
+    const handleError = (data: { message?: string }) => {
+      setConnectionError(data?.message || 'Chat error');
+    };
+
+    socket.on('connect', handleConnect);
+    socket.on('disconnect', handleDisconnect);
+    socket.on('connect_error', handleConnectError);
+    socket.on('newMessage', handleNewMessage);
+    socket.on('messageAck', handleMessageAck);
+    socket.on('messageHistory', handleMessageHistory);
+    socket.on('userJoined', handleUserJoined);
+    socket.on('userLeft', handleUserLeft);
+    socket.on('userTyping', handleUserTyping);
+    socket.on('messageReadReceipt', handleMessageReadReceipt);
+    socket.on('messageDeleted', handleMessageDeleted);
+    socket.on('error', handleError);
+
+    if (socket.connected) {
+      handleConnect();
+    }
+
+    return () => {
+      socket.off('connect', handleConnect);
+      socket.off('disconnect', handleDisconnect);
+      socket.off('connect_error', handleConnectError);
+      socket.off('newMessage', handleNewMessage);
+      socket.off('messageAck', handleMessageAck);
+      socket.off('messageHistory', handleMessageHistory);
+      socket.off('userJoined', handleUserJoined);
+      socket.off('userLeft', handleUserLeft);
+      socket.off('userTyping', handleUserTyping);
+      socket.off('messageReadReceipt', handleMessageReadReceipt);
+      socket.off('messageDeleted', handleMessageDeleted);
+      socket.off('error', handleError);
+
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+    };
+  }, [
+    userName,
+    roomName,
+    baseUrl,
+    autoConnect,
+    loadHistory,
+    historyLimit,
     addMessage,
+    reconcileMessage,
+    setMessages,
     updateMessage,
     removeMessage,
     setTypingUser,
     addConnectedUser,
     removeConnectedUser,
     setCurrentRoom,
-    setCurrentUser
-  ])
+    setCurrentUser,
+    setConnectionError,
+    setIsConnected,
+    clearMessages
+  ]);
 
-  const sendMessage = useCallback((message: string, receiverName?: string, metadata?: any) => {
-    if (!message.trim()) return
-
-    const socket = ensureSocket()
-
-    if (socket) {
-      const messageData: Omit<ChatMessage, 'timestamp' | 'messageId'> = {
-        senderName: userName,
-        receiverName: receiverName,
-        message: message.trim(),
-        roomName: roomName,
-        metadata: metadata
+  const sendMessage = useCallback(
+    (message: string, receiverName?: string, metadata?: any) => {
+      if (!message.trim()) {
+        return;
       }
 
-      socket.emit('sendMessage', messageData)
+      const socket = ensureSocket();
+      if (!socket) {
+        return;
+      }
 
-      // Add to local state immediately for optimistic UI
-      addMessage({
-        ...messageData,
-        messageId: `temp-${Date.now()}`,
+      const clientMessageId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const optimisticMessage: ChatMessage = {
+        messageId: clientMessageId,
+        clientMessageId,
+        senderName: userName,
+        receiverName,
+        message: message.trim(),
+        roomName,
+        metadata,
         timestamp: new Date().toISOString()
-      })
-    }
-  }, [userName, roomName, ensureSocket, addMessage])
+      };
 
-  const joinRoom = useCallback((newRoomName: string) => {
-    const socket = ensureSocket()
+      addMessage(optimisticMessage);
+      socket.emit('sendMessage', {
+        message: optimisticMessage.message,
+        receiverName,
+        metadata,
+        clientMessageId
+      });
+    },
+    [userName, roomName, ensureSocket, addMessage]
+  );
 
-    if (socket) {
-      socket.emit('joinRoom', { roomName: newRoomName })
-      setCurrentRoom(newRoomName)
-    }
-  }, [ensureSocket, setCurrentRoom])
+  const joinRoom = useCallback(
+    (newRoomName: string) => {
+      const socket = ensureSocket();
+      if (!socket) {
+        return;
+      }
 
-  const setTyping = useCallback((isTyping: boolean) => {
-    const socket = ensureSocket()
+      clearMessages();
+      socket.emit('joinRoom', { roomName: newRoomName }, () => {
+        setCurrentRoom(newRoomName);
+        if (loadHistory) {
+          socket.emit('getMessages', { roomName: newRoomName, limit: historyLimit });
+        }
+      });
+    },
+    [ensureSocket, setCurrentRoom, clearMessages, loadHistory, historyLimit]
+  );
 
-    if (socket) {
-      socket.emit('typing', { isTyping })
+  const setTyping = useCallback(
+    (isTyping: boolean) => {
+      const socket = ensureSocket();
+      if (!socket) {
+        return;
+      }
 
-      // Auto-stop typing after 3 seconds
+      socket.emit('typing', { isTyping });
+
       if (isTyping) {
         if (typingTimeoutRef.current) {
-          clearTimeout(typingTimeoutRef.current)
+          clearTimeout(typingTimeoutRef.current);
         }
         typingTimeoutRef.current = setTimeout(() => {
-          socket.emit('typing', { isTyping: false })
-        }, 3000)
+          socket.emit('typing', { isTyping: false });
+        }, 3000);
       }
-    }
-  }, [ensureSocket])
+    },
+    [ensureSocket]
+  );
 
-  const markMessageAsRead = useCallback((messageId: string, senderName: string) => {
-    const socket = ensureSocket()
+  const markMessageAsRead = useCallback(
+    (messageId: string, senderName: string) => {
+      const socket = ensureSocket();
+      if (!socket) {
+        return;
+      }
 
-    if (socket) {
-      socket.emit('messageRead', { messageId, senderName })
-      updateMessage(messageId, { isRead: true })
-    }
-  }, [ensureSocket, updateMessage])
+      socket.emit('messageRead', { messageId, senderName });
+      updateMessage(messageId, { isRead: true });
+    },
+    [ensureSocket, updateMessage]
+  );
 
-  const deleteMessage = useCallback((messageId: string) => {
-    const socket = ensureSocket()
+  const deleteMessage = useCallback(
+    (messageId: string) => {
+      const socket = ensureSocket();
+      if (!socket) {
+        return;
+      }
 
-    if (socket) {
-      socket.emit('deleteMessage', { messageId })
-      removeMessage(messageId)
-    }
-  }, [ensureSocket, removeMessage])
+      socket.emit('deleteMessage', { messageId });
+      removeMessage(messageId);
+    },
+    [ensureSocket, removeMessage]
+  );
+
+  const loadMessages = useCallback(
+    (limit = historyLimit) => {
+      const socket = ensureSocket();
+      if (!socket) {
+        return;
+      }
+      socket.emit('getMessages', { roomName, limit });
+    },
+    [ensureSocket, roomName, historyLimit]
+  );
 
   return {
     messages,
     typingUsers: Array.from(typingUsers),
     connectedUsers: Array.from(connectedUsers),
+    isConnected,
+    connectionError,
     sendMessage,
     joinRoom,
     setTyping,
     markMessageAsRead,
-    deleteMessage
-  }
-}
+    deleteMessage,
+    loadMessages
+  };
+};

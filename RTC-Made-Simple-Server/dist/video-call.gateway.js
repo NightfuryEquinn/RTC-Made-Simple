@@ -11,50 +11,108 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
+var VideoCallGateway_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.VideoCallGateway = void 0;
 const websockets_1 = require("@nestjs/websockets");
+const common_1 = require("@nestjs/common");
 const socket_io_1 = require("socket.io");
 const video_call_service_1 = require("./video-call.service");
 const end_call_dto_1 = require("./dtos/end-call.dto");
-let VideoCallGateway = class VideoCallGateway {
+let VideoCallGateway = VideoCallGateway_1 = class VideoCallGateway {
     constructor(videoCallService) {
         this.videoCallService = videoCallService;
+        this.logger = new common_1.Logger(VideoCallGateway_1.name);
     }
-    handleConnection(client) {
+    async handleConnection(client) {
         const callerName = client.handshake.query.callerName;
-        const roomName = client.handshake.query.roomName;
+        const roomName = client.handshake.query.roomName || callerName;
         if (!callerName) {
+            this.logger.warn('Caller name is required. Disconnecting client.');
+            client.emit('error', { message: 'callerName is required' });
             client.disconnect();
-            console.log('Caller name is required. Disconnected ...');
+            return;
+        }
+        const allowed = await this.videoCallService.canConnect(callerName, roomName, client.handshake.query);
+        if (!allowed) {
+            this.logger.warn(`Connection rejected for caller ${callerName}`);
+            client.emit('error', { message: 'Connection rejected' });
+            client.disconnect();
             return;
         }
         client.data.user = callerName;
         client.data.homeRoom = roomName;
         client.data.roomName = roomName;
+        client.data.activeCall = null;
         client.join(roomName);
-        console.log(`Caller ${callerName} connected to room ${client.data.roomName}`);
+        this.logger.log(`Caller ${callerName} connected to room ${client.data.roomName}`);
     }
-    handleDisconnect(client) {
+    async handleDisconnect(client) {
         if (client.data.user && client.data.roomName) {
-            console.log(`User ${client.data.user} disconnected from room ${client.data.roomName}`);
+            this.logger.log(`User ${client.data.user} disconnected from room ${client.data.roomName}`);
+        }
+        const activeCall = client.data.activeCall;
+        if (activeCall) {
+            const room = activeCall.receiverName;
+            client.to(room).emit('callEnded', {
+                callerName: activeCall.callerName,
+                receiverName: activeCall.receiverName,
+                conversationId: activeCall.conversationId,
+                endedBy: client.data.user,
+                reason: 'Peer disconnected'
+            });
+            try {
+                await this.videoCallService.endCall(activeCall.callerName, activeCall.receiverName, end_call_dto_1.CallStatus.ENDED);
+            }
+            catch (error) {
+                this.logger.error('Error ending call on disconnect', error);
+            }
         }
     }
+    returnToHomeRoom(client) {
+        if (client.data.roomName && client.data.roomName !== client.data.homeRoom) {
+            client.leave(client.data.roomName);
+        }
+        client.join(client.data.homeRoom);
+        client.data.roomName = client.data.homeRoom;
+        client.data.activeCall = null;
+    }
     async handleJoinCallRoom(data, client) {
-        const target = data.roomName;
+        const target = data?.roomName;
         if (!target) {
-            console.log('Target room name is required.');
-            return;
+            client.emit('error', { message: 'Target room name is required' });
+            return { ok: false, error: 'Target room name is required' };
         }
         if (client.data.roomName && client.data.roomName !== target) {
             client.leave(client.data.roomName);
         }
         client.join(target);
         client.data.roomName = target;
-        console.log(`User ${client.data.user} switched back to room ${client.data.roomName}`);
+        this.logger.log(`User ${client.data.user} joined call room ${target}`);
+        client.to(target).emit('peerJoined', {
+            userName: client.data.user,
+            roomName: target
+        });
+        return { ok: true, roomName: target };
+    }
+    async handlePeerReady(data, client) {
+        const room = data?.roomName || client.data.roomName;
+        if (!room) {
+            return { ok: false, error: 'roomName is required' };
+        }
+        client.to(room).emit('peerReady', {
+            userName: client.data.user,
+            callerName: data.callerName,
+            receiverName: data.receiverName,
+            roomName: room
+        });
+        return { ok: true };
     }
     async handleNewCall(data, client) {
-        console.log(`Call from ${client.data.user} to ${data.receiverName} in room ${client.data.roomName}`);
+        if (!client.data.roomName) {
+            return;
+        }
+        this.logger.log(`Offer from ${client.data.user} to ${data.receiverName} in room ${client.data.roomName}`);
         client.to(client.data.roomName).emit('newCall', {
             callerName: client.data.user,
             receiverName: data.receiverName,
@@ -62,26 +120,29 @@ let VideoCallGateway = class VideoCallGateway {
         });
     }
     async handleEndCall(data, client) {
-        console.log(`Call ended by ${client.data.user} in room ${client.data.roomName}`);
+        this.logger.log(`Call ended by ${client.data.user} in room ${client.data.roomName}`);
         client.to(client.data.roomName).emit('callEnded', {
             callerName: data.callerName,
             receiverName: data.receiverName,
             conversationId: data.conversationId,
             endedBy: client.data.user
         });
-        client.leave(client.data.roomName);
-        client.join(client.data.homeRoom);
-        client.data.roomName = client.data.homeRoom;
-        console.log(`User ${client.data.user} returned to home room ${client.data.roomName}`);
+        this.returnToHomeRoom(client);
+        this.logger.log(`User ${client.data.user} returned to home room ${client.data.roomName}`);
         try {
-            await this.videoCallService.endCall(data.callerName, data.receiverName, end_call_dto_1.CallStatus.ACCEPTED);
+            await this.videoCallService.endCall(data.callerName, data.receiverName, end_call_dto_1.CallStatus.ENDED);
         }
         catch (error) {
-            console.error('Error ending call:', error);
+            this.logger.error('Error ending call', error);
         }
     }
     async handleIncomingCall(data, client) {
-        console.log(`Incoming call from ${data.callerName} to ${data.receiverName} in room ${client.data.roomName}`);
+        this.logger.log(`Incoming call from ${data.callerName} to ${data.receiverName} in room ${client.data.roomName}`);
+        client.data.activeCall = {
+            callerName: data.callerName,
+            receiverName: data.receiverName,
+            conversationId: data.conversationId
+        };
         client.to(client.data.roomName).emit('incomingCall', {
             callerName: data.callerName,
             receiverName: data.receiverName,
@@ -89,14 +150,19 @@ let VideoCallGateway = class VideoCallGateway {
             roomName: client.data.roomName
         });
         try {
-            await this.videoCallService.createCall(data.callerName, data.receiverName);
+            await this.videoCallService.createCall(data.callerName, data.receiverName, data.conversationId);
         }
         catch (error) {
-            console.error('Error ending call:', error);
+            this.logger.error('Error creating call', error);
         }
     }
     async handleAcceptCall(data, client) {
-        console.log(`Call accepted by ${data.receiverName} from ${data.callerName}`);
+        this.logger.log(`Call accepted by ${data.receiverName} from ${data.callerName}`);
+        client.data.activeCall = {
+            callerName: data.callerName,
+            receiverName: data.receiverName,
+            conversationId: data.conversationId
+        };
         client.to(client.data.roomName).emit('callAccepted', {
             callerName: data.callerName,
             receiverName: data.receiverName,
@@ -105,45 +171,43 @@ let VideoCallGateway = class VideoCallGateway {
         });
     }
     async handleDeclineCall(data, client) {
-        console.log(`Call declined by ${data.callerName} to ${data.receiverName}`);
+        this.logger.log(`Call declined by ${data.receiverName} for ${data.callerName}`);
         const targetRoom = client.data.roomName;
         client.to(targetRoom).emit('callDeclined', {
             callerName: data.callerName,
             receiverName: data.receiverName,
             reason: data.reason || 'Call declined'
         });
-        client.leave(targetRoom);
-        client.join(client.data.homeRoom);
-        client.data.roomName = client.data.homeRoom;
-        console.log(`User ${client.data.user} returned to home room ${client.data.roomName}`);
+        this.returnToHomeRoom(client);
+        this.logger.log(`User ${client.data.user} returned to home room ${client.data.roomName}`);
         try {
             await this.videoCallService.endCall(data.callerName, data.receiverName, end_call_dto_1.CallStatus.REJECTED);
         }
         catch (error) {
-            console.error('Error declining call:', error);
+            this.logger.error('Error declining call', error);
         }
     }
     async handleCancelCall(data, client) {
-        console.log(`Call cancelled by ${data.callerName} to ${data.receiverName}`);
+        this.logger.log(`Call cancelled by ${data.callerName} to ${data.receiverName}`);
         const targetRoom = client.data.roomName;
         client.to(targetRoom).emit('callEnded', {
             callerName: data.callerName,
             receiverName: data.receiverName,
+            conversationId: data.conversationId,
+            endedBy: client.data.user,
             reason: 'Call cancelled'
         });
-        client.leave(targetRoom);
-        client.join(client.data.homeRoom);
-        client.data.roomName = client.data.homeRoom;
-        console.log(`User ${client.data.user} returned to home room ${client.data.roomName}`);
+        this.returnToHomeRoom(client);
+        this.logger.log(`User ${client.data.user} returned to home room ${client.data.roomName}`);
         try {
             await this.videoCallService.endCall(data.callerName, data.receiverName, end_call_dto_1.CallStatus.ENDED);
         }
         catch (error) {
-            console.error('Error cancelling call:', error);
+            this.logger.error('Error cancelling call', error);
         }
     }
     async handleCallAnswered(data, client) {
-        console.log(`Call answered by ${client.data.user} from ${data.callerName} in room ${client.data.roomName}`);
+        this.logger.log(`Answer from ${client.data.user} for ${data.callerName} in room ${client.data.roomName}`);
         client.to(client.data.roomName).emit('callAnswered', {
             callerName: data.callerName,
             receiverName: data.receiverName,
@@ -151,7 +215,6 @@ let VideoCallGateway = class VideoCallGateway {
         });
     }
     async handleICEcandidate(data, client) {
-        console.log(`ICE candidate from ${client.data.user} to ${data.receiverName} in room ${client.data.roomName}`);
         client.to(client.data.roomName).emit('ICEcandidate', {
             sender: client.data.user,
             rtcMessage: data.rtcMessage
@@ -171,6 +234,14 @@ __decorate([
     __metadata("design:paramtypes", [Object, socket_io_1.Socket]),
     __metadata("design:returntype", Promise)
 ], VideoCallGateway.prototype, "handleJoinCallRoom", null);
+__decorate([
+    (0, websockets_1.SubscribeMessage)('peerReady'),
+    __param(0, (0, websockets_1.MessageBody)()),
+    __param(1, (0, websockets_1.ConnectedSocket)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, socket_io_1.Socket]),
+    __metadata("design:returntype", Promise)
+], VideoCallGateway.prototype, "handlePeerReady", null);
 __decorate([
     (0, websockets_1.SubscribeMessage)('newCall'),
     __param(0, (0, websockets_1.MessageBody)()),
@@ -235,7 +306,7 @@ __decorate([
     __metadata("design:paramtypes", [Object, socket_io_1.Socket]),
     __metadata("design:returntype", Promise)
 ], VideoCallGateway.prototype, "handleICEcandidate", null);
-exports.VideoCallGateway = VideoCallGateway = __decorate([
+exports.VideoCallGateway = VideoCallGateway = VideoCallGateway_1 = __decorate([
     (0, websockets_1.WebSocketGateway)({
         cors: true,
         transports: ['websocket'],

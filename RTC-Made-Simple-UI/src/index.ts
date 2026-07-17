@@ -14,7 +14,9 @@ export type {
   IncomingCallData, 
   CallDeclinedData, 
   CallAcceptedData, 
-  CallEndedData 
+  CallEndedData,
+  PeerReadyData,
+  VideoCallConfig
 } from './types/call.types';
 
 // Utils
@@ -39,5 +41,6 @@ export type {
   UserTypingData,
   MessageReadReceiptData,
   MessageDeletedData,
+  MessageHistoryData,
   ChatConfig
 } from './types/chat.types';

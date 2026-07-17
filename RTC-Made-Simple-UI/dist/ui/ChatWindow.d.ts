@@ -8,6 +8,8 @@ interface ChatWindowProps {
     placeholder?: string;
     emptyStateText?: string;
     showTypingIndicator?: boolean;
+    maxMessages?: number;
+    loadHistory?: boolean;
 }
 export declare const ChatWindow: React.FC<ChatWindowProps>;
 export {};

@@ -6,10 +6,11 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@nightfuryequinn/rtc-made-simple-ui": "file:../../RTC-Made-Simple-UI/nightfuryequinn-rtc-made-simple-ui-2.0.0.tgz",
+    "@nightfuryequinn/rtc-made-simple-ui": "file:../../RTC-Made-Simple-UI",
     "expo": "~52.0.47",
     "expo-asset": "~11.0.5",
     "expo-constants": "~17.0.8",

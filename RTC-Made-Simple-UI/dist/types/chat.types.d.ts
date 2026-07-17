@@ -1,5 +1,6 @@
 export interface ChatMessage {
     messageId?: string;
+    clientMessageId?: string;
     senderName: string;
     receiverName?: string | null;
     message: string;
@@ -35,6 +36,10 @@ export interface MessageDeletedData {
     deletedBy: string;
     roomName: string;
     timestamp: string;
+}
+export interface MessageHistoryData {
+    roomName: string;
+    messages: ChatMessage[];
 }
 export interface ChatConfig {
     baseUrl: string;

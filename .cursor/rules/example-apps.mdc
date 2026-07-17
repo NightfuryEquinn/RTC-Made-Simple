@@ -1,0 +1,30 @@
+---
+description: Example Nest backend and Expo mobile integration patterns
+globs: RTC-Made-Simple-Example/**/*.{ts,tsx,js,mjs,json}
+alwaysApply: false
+---
+
+# Example Apps
+
+## Role
+
+Examples are **consumers**, not forks of library logic. Wire libraries via:
+
+- `VideoCallModule.forRoot` / `ChatModule.forRoot`
+- `useVideoSocket`, `ChatWindow`, `VideoCallScreen`, `CallOverlay`
+
+## Backend
+
+- Register a global `ValidationPipe`
+- Demonstrate callbacks (`onMessageSent` returning `messageId`, `onGetMessages`, `canConnect`)
+- Keep demo storage in-memory unless extending for a tutorial
+
+## Mobile
+
+- Resolve server URL with `EXPO_PUBLIC_RTC_SERVER_URL`, falling back to emulator defaults
+- Use Expo Router `app/` screens
+- Keep call accept navigation and `onCallAccepted` navigation consistent for caller/receiver
+
+## Style
+
+Example-backend may use its Prettier/ESLint (single quotes). Do not force that style back onto the libraries.

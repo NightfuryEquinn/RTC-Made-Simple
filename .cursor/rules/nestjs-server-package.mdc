@@ -1,0 +1,36 @@
+---
+description: Conventions for the NestJS rtc-made-simple-server library
+globs: RTC-Made-Simple-Server/src/**/*.ts
+alwaysApply: false
+---
+
+# NestJS Server Package
+
+## Structure
+
+Keep chat/video symmetry:
+
+- `*.module.ts` with `forRoot({ callbacks, customService })`
+- `*.gateway.ts` for Socket.IO (`/call`, `/chat`)
+- `*.service.ts` invoking callbacks
+- `*.controller.ts` for thin REST mirrors
+- `dtos/` + `interfaces/` for extension points
+- Export public APIs from `src/index.ts`
+
+## Patterns
+
+```typescript
+// ✅ GOOD — validate payloads, ack clients, include server IDs
+const saved = await this.chatService.saveMessage(...);
+client.to(room).emit('newMessage', { ...saved, clientMessageId });
+client.emit('messageAck', { ...saved, clientMessageId });
+return { ok: true, message: saved };
+
+// ❌ BAD — broadcast without messageId / ignore join failures
+client.to(room).emit('newMessage', { message: data.message });
+```
+
+- Use Nest `Logger`, not ad-hoc `console.log` for gateway errors
+- Optional `canConnect` callback gates handshakes; do not claim built-in auth
+- Hang-up uses `CallStatus.ENDED`; decline uses `REJECTED`
+- Specs live beside sources as `*.spec.ts` and are excluded from `tsc` emit

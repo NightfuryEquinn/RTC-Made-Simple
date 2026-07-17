@@ -20,17 +20,22 @@ let ChatService = class ChatService {
         this.callbacks = callbacks;
     }
     async saveMessage(senderName, receiverName, message, roomName, metadata) {
+        let callbackResult = undefined;
         if (this.callbacks?.onMessageSent) {
-            await this.callbacks.onMessageSent(senderName, receiverName, message, roomName, metadata);
+            callbackResult = await this.callbacks.onMessageSent(senderName, receiverName, message, roomName, metadata);
         }
+        const messageId = (callbackResult && typeof callbackResult === 'object' && callbackResult.messageId) ||
+            Math.random().toString(36).substring(2, 15);
         return new message_response_dto_1.MessageResponseDto({
-            messageId: Math.random().toString(36).substring(2, 15),
-            senderName: senderName,
-            receiverName: receiverName,
-            message: message,
-            roomName: roomName,
-            timestamp: new Date().toISOString(),
-            metadata: metadata
+            messageId,
+            senderName,
+            receiverName,
+            message,
+            roomName,
+            timestamp: (callbackResult && typeof callbackResult === 'object' && callbackResult.timestamp) ||
+                new Date().toISOString(),
+            metadata: (callbackResult && typeof callbackResult === 'object' && callbackResult.metadata) ||
+                metadata
         });
     }
     async markMessageAsRead(messageId, readBy) {
@@ -56,6 +61,12 @@ let ChatService = class ChatService {
             return await this.callbacks.onGetMessages(roomName, limit);
         }
         return [];
+    }
+    async canConnect(userName, roomName, handshake) {
+        if (!this.callbacks?.canConnect) {
+            return true;
+        }
+        return Boolean(await this.callbacks.canConnect(userName, roomName, handshake));
     }
 };
 exports.ChatService = ChatService;

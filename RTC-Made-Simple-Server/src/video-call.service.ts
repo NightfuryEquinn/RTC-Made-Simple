@@ -12,29 +12,44 @@ export class VideoCallService implements VideoCallServiceInterface {
   ) {}
 
   async createCall(
-    callerName: string, receiverName: string
+    callerName: string,
+    receiverName: string,
+    conversationId?: number
   ): Promise<ResponseCallDto> {
     if (this.callbacks?.onCallCreated) {
-      await this.callbacks.onCallCreated(callerName, receiverName)
+      await this.callbacks.onCallCreated(callerName, receiverName, conversationId);
     }
 
     return new ResponseCallDto({
       callId: Math.random().toString(36).substring(2, 15),
       callerId: callerName,
       receiverId: receiverName
-    })
+    });
   }
 
   async endCall(
-    callerName: string, receiverName: string, status: CallStatus
-  ): Promise<any> {
+    callerName: string,
+    receiverName: string,
+    status: CallStatus
+  ): Promise<{ message: string; statusCode: number }> {
     if (this.callbacks?.onCallEnded) {
-      await this.callbacks.onCallEnded(callerName, receiverName, status)
+      await this.callbacks.onCallEnded(callerName, receiverName, status);
     }
 
     return {
       message: 'Call ended successfully',
       statusCode: 200
+    };
+  }
+
+  async canConnect(
+    callerName: string,
+    roomName: string | undefined,
+    handshake: Record<string, unknown>
+  ): Promise<boolean> {
+    if (!this.callbacks?.canConnect) {
+      return true;
     }
+    return Boolean(await this.callbacks.canConnect(callerName, roomName, handshake));
   }
 }
